@@ -1,0 +1,11 @@
+## IGSuite 4.0.1
+## Language: articles_lang
+## Last update: 01/07/2010
+## Tradução: Marco Túlio de Oliveira Alves
+
+%lang = (%lang,
+   (
+new_article		=>'Novo ítem',
+   ));
+
+1;

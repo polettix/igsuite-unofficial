@@ -1,0 +1,858 @@
+#! /usr/bin/perl
+# Procedure: igsuited
+# Last update: 01/07/2010
+#############################################################################
+# IGSuite 4.0.1 - Provides an Office Suite by  simple web interface         #
+# Copyright (C) 2002 Dante Ortolani  [LucaS]                                #
+#                                                                           #
+# This program is free software; you can redistribute it and/or             #
+# modify it under the terms of the GNU General Public License               #
+# as published by the Free Software Foundation; either version 2            #
+# of the License, or (at your option) any later version.                    #
+#                                                                           #
+# This program is distributed in the hope that it will be useful,           #
+# but WITHOUT ANY WARRANTY; without even the implied warranty of            #
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the             #
+# GNU General Public License for more details.                              #
+#                                                                           #
+# You should have received a copy of the GNU General Public License         #
+# along with this program; if not, write to the Free Software Foundation,   #
+# Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.           #
+#############################################################################
+
+use strict;
+use IG;
+use IG::Utils;
+use IG::TimeLocal;
+use Config;
+
+IG::MkEnv(__PACKAGE__);
+
+## We need it to store action results
+my $result_msg;
+
+## We don't need any arguments parser (GetOpt). We accept only one argument
+my $action = $on{action} || $ARGV[0];
+
+## Check Cgi request privilege (only ig users can execute requests by web)
+(print STDOUT IG::Warn( $lang{Err_privileges} )) && exit if _cant_access();
+
+## Set ALRM signal
+if ( $action ) { $SIG{ALRM} = sub { die("timeout\n") } }
+
+## Cache users info #XXX2TEST WHY???
+IG::UsrInf( 'login' );
+
+## Dispatch Table
+if    ( $action eq '--send-reminder'         ) { send_reminder();         }
+elsif ( $action eq '--send-email-reminder'   ) { send_email_reminder();   }
+elsif ( $action eq '--update-weather'        ) { update_weather();        }
+elsif ( $action eq '--update-quotes'         ) { update_quotes();         }  
+elsif ( $action eq '--register-plugins'      ) { register_plugins();      }
+elsif ( $action eq '--download-email'        ) { download_email();        }
+elsif ( $action eq '--empty-all-email-trash' ) { empty_all_email_trash(); }
+elsif ( $action eq '--vacuum-db'             ) { vacuum_db();             }
+elsif ( $action eq '--update-igsuite'        ) { update_igsuite();        }
+elsif ( $action eq '--clean-old-files'       ) { clean_old_files();       }
+elsif ( $action eq '--check-modules'         ) { check_modules();         }
+elsif ( $action )                              { help();                  }
+else
+ { 
+  ## start as a daemon only if it's requested by command line
+  die("IGSuited Daemon can't get started by cgi requests\n")
+    if $IG::request_method ne 'commandline';
+
+  ## child process planning. Set to '0' seconds if you want disable it
+  my %proc = (	'update-weather'	=>[  7200,	0], # 2hours
+                'update-quotes'         =>[  3600,      0], # 1hour
+		'vacuum-db'		=>[     0,	0], # disabled
+		'download-email'	=>[   900,	0], # 15min
+		'clean-old-files'       =>[ 86400,	0], # 24h
+		'send-reminder'         =>[   300,	0], # 5min
+		'send-email-reminder'   =>[ 86400,	0], # 24hours
+		'update-igsuite'	=>[ 86400,	0]);# 24h
+  my $tm;
+  my $perl = _find_perl_shebang();
+
+  while ( 1 )
+   {
+    ## this is an infinite loop
+    sleep(5);
+    foreach my $i (keys %proc)
+     {
+      $tm = time;
+      if ( $proc{$i}[0] && ($tm-$proc{$i}[0]) > $proc{$i}[1] )
+       {
+        $proc{$i}[1] = $tm;
+        IG::SysExec( command   => $perl,
+                     arguments => [( "-I$IG::cgi_dir${S}",
+                                     "-I$IG::cgi_dir${S}IG${S}",
+                                     "$IG::cgi_dir${S}igsuited",
+                                     "--$i" )]
+                   ) or die("Can't exec command ".
+                            "'$perl $IG::cgi_dir${S}igsuited --$i'");
+       }
+     }
+   }
+ }
+
+## cgi request
+if ($IG::request_method ne 'commandline' )
+ {
+  $result_msg ||= "Command sent correctly!";
+  $result_msg   = IG::MkEntities( $result_msg );
+  $result_msg   =~ s/\n/<br>\n/g;
+
+  print STDOUT HtmlHead().Br(2).
+               TaskHead( title => 'igsuited', icon => 1 ).
+               TaskMsg( $result_msg ).
+               TaskFoot().
+               HtmlFoot();
+ }
+else
+ {
+  print STDOUT "$result_msg\n" if $result_msg;
+ }
+
+#############################################################################
+#############################################################################
+sub register_plugins
+ {
+  ## Start to write a plugin index
+  my $plugins_dir = "$IG::cgi_dir${IG::S}data${IG::S}plugins";
+  open(FH, '>', "$plugins_dir${IG::S}index.pm")
+    or die("Can't write on '$plugins_dir'.\n");
+
+  print FH <<END;
+# IGSuite $IG::VERSION
+## Plugin Index: index.pm
+## Last update: $IG::tv{today}
+##############################################################################
+#  IGSuite $IG::VERSION - Provides an Office Suite by  simple web interface         #
+#  Copyright (C) 2002 Dante Ortolani  [LucaS]                                #
+##############################################################################
+
+### DON'T EDIT THIS FILE MANUALLY !!! TO UPDATE IT EXECUTE IGSUITED SCRIPT ###
+
+%IG::plugins
+ = (
+END
+
+  opendir (DIR, $plugins_dir)
+    or die("Can't open '$plugins_dir'. Try to execute 'mkstruct.pl' script.\n");
+
+  foreach ( sort grep /^.+\.pm$/, readdir DIR )
+   {
+    next if /example\.pm|index\.pm/;
+    my $plugin = $plugins_dir . $IG::S . $_;
+
+    require "$plugin"; ##don't touch "
+    my $registration = init($_);
+    print FH $registration;
+   }
+  close(DIR);
+
+  print FH "   );\n\n1;\n";
+  close(FH);
+  $result_msg = 'All plugins were registered successfully';
+ }
+ 
+#############################################################################
+#############################################################################
+sub clean_old_files
+ {
+  alarm(300); ## 5 min 
+
+  ## Clean old file from trash basket and temp directories
+  for my $dir2clean ( "$IG::htdocs_dir$IG::S$IG::default_lang{basket}$IG::S",
+                      "$IG::temp_dir$IG::S" )
+   {
+    my $files;
+    opendir (DIR, $dir2clean)
+      or die("Can't read from '$dir2clean' Check permissions.\n");
+
+    while ( defined($files = readdir(DIR)) )
+     {
+      ## clean older than 15 days
+      if ( -M "$dir2clean$files" > 15 && ! -d "$dir2clean$files" )
+       {
+        unlink "$dir2clean$files"
+           or die("Can't delete '$files' from '$dir2clean'. ".
+                  "Check file permissions.\n");
+       }
+     }
+    closedir (DIR);
+   }
+  $result_msg = 'Temporary files older than 15 days were deleted successfully';
+ }
+ 
+#############################################################################
+#############################################################################
+sub empty_all_email_trash
+ {
+  require IG::WebMail;
+  my $deleted_msgs = IG::WebMail::EmptyTrash( user => 'all' ) || '0';
+  $result_msg = "Empty $deleted_msgs email messages from all trash folders";
+ }
+
+#############################################################################
+#############################################################################
+sub download_email
+ {
+  my $perl = _find_perl_shebang();
+  alarm(600); ## 10 min
+  $ENV{SCRIPT_FILENAME} = "$IG::cgi_dir${S}webmail";
+
+  foreach my $user ( keys %{IG::UsrInf()} )
+   {
+    if ( IG::ConfigParam('webmail.auto_download', $user) )
+     {
+      IG::SysExec( command   => $perl,
+                   arguments => [( "-I$IG::cgi_dir${S}",
+                                   "-I$IG::cgi_dir${S}IG${S}",
+                                   "$IG::cgi_dir${S}webmail",
+                                   "--action=ckmessages",
+  	                           "--auth_user=$user" )]
+	          ) or die("Can't execute: $perl $IG::cgi_dir${S}webmail ".
+	                   "to retrieve new email messages for user $user\n");
+
+      sleep(1);
+     }
+   }
+ }
+
+#############################################################################
+#############################################################################
+sub update_weather
+ {
+  require IG::Utils;
+  require LWP::Simple;
+  alarm(300); #timeout 5 min
+  return if   !$IG::plugin_conf{weather}{code}
+            || $IG::plugin_conf{weather}{code} eq 'none'; 
+
+  my @codes = ref($IG::plugin_conf{weather}{code}) eq 'ARRAY'
+            ? @{$IG::plugin_conf{weather}{code}}
+            : ($IG::plugin_conf{weather}{code});
+
+  for my $city_code ( @codes )
+   {
+    my $cnt;
+    my $weather;
+    my $weather_filename = "$IG::temp_dir${S}weather_$city_code.txt";
+    my $icon_url;
+
+    ## we don't want overcharge weather.com
+    next if -e $weather_filename && -M $weather_filename < 0.5/24; ## 30 min
+
+    my $r = LWP::Simple::get("http://www.weather.com".
+			     "/weather/today/".
+			     $city_code );
+    return if !$r;
+
+    ## retrieve city name
+    my ($city_name) = $r =~ /<h1 class\=\"wxH1\">([^<]*)Weather<\/h1>/;
+    1 while $city_name =~ s/\r|\n|\t|  / /g;
+
+    ## retrieve content
+    my $_start = 0;
+    for (split /\n/,$r)
+     {
+      next if $_ !~ /Right Now/i && !$_start;
+      $_start++;
+      last if /<script>/;
+      $icon_url  ||= $1 if /\'(http[^\']+\.jpg)\'/;
+      $weather .= IG::HtmlUntag($_);
+     }
+
+    ## Clean usefull text
+    1 while $weather =~ s/\n|\r|\t|  / /g;
+    $weather =~ s/Webcam Weather Details//i;
+    $weather =~ s/placeSWFobject\([^\)]+\)//i;
+    $weather =~ s/\.ccDetailLinkExtra \{[^\}]+\}//i;
+    $weather =~ s/\.ccDetailLinks:hover \{[^\}]+\}//i;
+        
+    $icon_url =~ /\/([^\/]+\.jpg)/i;
+    my $image = "weather_$1";
+
+    open( DET, '>', $weather_filename)
+      or die("Can't write on '$weather_filename'.\n");
+
+    ## Convert units to SI metric system
+    if ( $IG::plugin_conf{weather}{metric_system} eq 'true' )
+     {
+      $weather =~ s/([\d\.]+)(\&deg\;|\°|�) *F/int(0.555555555556*($1-32)) . '&deg;C'/megi;
+      $weather =~ s/([\d\.]+) (miles|mi)/int(0.62136994949495 * $1) . ' km'/megi;
+      $weather =~ s/([\d\.]+) *mph/int(0.62136994949495 * $1) . ' km\/h'/megi;
+     }
+      
+    print DET "$city_name\n".
+              "<div style=\"float:left; font-size:11px;\">".
+              "<strong>$lang{weather}: $city_name</strong>".
+              "</div>".
+	      "<img alt=\"weather.com\" style=\"width:52px; height:52px; float:right;\" src=\"${IG::webpath}/images/$image\">".
+	      "<div style=\"clear:left; font-size:10px;\">".
+	      "<strong>Last update: $tv{today} - $tv{time}</strong><br>\n".
+	      $weather.
+	      "</div>\n";
+    close(DET);
+    chmod 0644, $weather_filename;
+
+    ## get weather icon and put it in images directory
+    my $icon_filename = "$IG::htdocs_dir${S}images${S}$image";
+    if ( $icon_url && ! -e $icon_filename )
+     {
+      my $r = LWP::Simple::get( $icon_url );
+      open (IMG, '>', $icon_filename)
+        or die("Can't write on '$icon_filename'.\n");
+      binmode(IMG);
+      print IMG $r;
+      close (IMG);
+      chmod 0664, $icon_filename;
+     }
+   }
+  $result_msg = 'Weather info were updated successfully';
+ }
+
+#############################################################################
+#############################################################################
+sub update_quotes
+ {
+  ## we don't want overcharge yahoo.com
+  my $quotes_filename = "$IG::temp_dir${S}finance_quotes.txt";
+  return if -e $quotes_filename && -M $quotes_filename < 0.5/24; ## 30 min
+
+  eval("require Finance::Quote;");
+  return if $@; 
+
+  my $exchange = $IG::plugin_conf{quotes}{exchange} || 'yahoo_europe';
+  my $symbols  = $IG::plugin_conf{quotes}{symbols}  || 'TIS.MI ENEL.MI';
+
+  my @quotes;
+  my $q = Finance::Quote->new;
+  $q->timeout(60);
+  $q->failover(1); # Set failover support (on by default).
+  $q->require_labels(qw/name date volume open last/);
+
+  push @quotes, [( 'Name',
+                   'Date',
+                   'Volume',
+                   'Open',
+                   'Last' )];
+
+  for my $symbol ( split / /, $symbols )
+   {
+    my %info = $q->fetch( $exchange, $symbol );
+    next if !$info{$symbol, 'name'};
+
+    push @quotes, [( $info{$symbol, 'name'},
+                     $info{$symbol, 'date'},
+                     $info{$symbol, 'volume'},
+                     $info{$symbol, 'open'},
+                     $info{$symbol, 'last'} )];
+   }
+
+  open( DET, '>', $quotes_filename)
+    or die("Can't write on '$quotes_filename'.\n");
+
+  print DET IG::MkTable( values     => \@quotes,
+                         style      => 'width:100%; text-align:right;',
+                         style_c_r  => 'font-size:10px',
+                         style_c_r1 => 'font-weight:bold;'.
+                                       'background-color:#FFFFFF;'.
+                                       'text-align:left;'.
+                                       'border-bottom:1px solid #999999',
+                         style_c1_r => 'background-color:#DDDDDD;'.
+                                       'text-align:left',
+                         style_c3_r => 'background-color:#DDDDDD',
+                         style_c5_r => 'background-color:#DDDDDD' );
+  close(DET);
+ }
+
+#############################################################################
+#############################################################################
+sub vacuum_db
+ {
+  if ( $IG::db_driver eq 'postgres' )
+   {
+    DbQuery('vacuum');
+   }
+   
+  if ( $IG::db_driver eq 'mysql' )
+   {
+    use IG::DBStructure;
+    DbQuery( "optimize table ".join(', ', sort keys %IG::DBStructure::db_tables_index) );
+   }
+ }
+
+#############################################################################
+#############################################################################
+sub update_igsuite
+ {
+  require LWP::Simple;
+
+  my $perl = _find_perl_shebang();
+  my (%mail, $data, @file_ori, $logmess, $db_struct_changed, $igsuited_changed, $file_new);
+
+  alarm(300); #timeout 5 minuts
+
+  ## collect local file info
+  my @files;
+  for my $i (	$IG::cgi_dir,
+		"$IG::cgi_dir${S}lang${S}it",
+		"$IG::cgi_dir${S}lang${S}en",
+		"$IG::cgi_dir${S}lang${S}es",
+		"$IG::cgi_dir${S}lang${S}pt",
+		"$IG::cgi_dir${S}IG",
+		"$IG::cgi_dir${S}tema")
+   {
+    opendir (DIR, $i) or die("$lang{couldnt_open} '$i'.\n");
+    foreach (sort grep !/^\.|\~$/, readdir DIR)
+     { push (@files, (substr($i,length($IG::cgi_dir),) . $S . $_) ); }
+    close(DIR);
+   }
+
+  ## Write a new "list_updated" file with last update date of each file
+  open (DET, '>', "$IG::cgi_dir${S}list_updated")
+    or die("$lang{couldnt_write} '$IG::cgi_dir${S}list_updated'.\n");
+  print DET "$tv{today}\n";
+
+  my $cnt_script;
+  foreach my $file_name ( @files )
+   {
+    open (FIL, '<', "$IG::cgi_dir$file_name") or next;
+    my $script  = <FIL>;
+    $script .= <FIL>;
+    $script .= $data = <FIL>;
+    $script .= $_ while (<FIL>);
+    close(FIL);
+    next if !$script;
+
+    if ( $data =~ /Last update\: (\d\d).(\d\d).(\d\d\d\d)/ )
+     {
+      ++$cnt_script;
+      my $date = "$3$2$1";
+
+      my $win_name = $file_name;
+      $win_name =~ s/\//\\/g;
+      my $unix_name = $file_name;
+      $unix_name =~ s/\\/\//g;
+
+      my $md5 = IG::Md5Digest( $script );
+      $file_ori[$cnt_script][0] = $date;
+      $file_ori[$cnt_script][1] = $file_name;
+      $file_ori[$cnt_script][2] = $unix_name;
+
+      print DET "$date $md5 $unix_name\n";
+      print DET "$date $md5 $win_name\n";
+     }
+   }
+  close(DET);
+
+  ## check if this is a beta release and do nothing
+  return if $IG::VERSION =~ /b$/i;
+
+  ## download the list of available update
+  my $list_updated = LWP::Simple::get("http://www.igsuite.org/live/".
+				      "$IG::VERSION/list_updated");
+
+  die( "Can't retrieve list of upgrades from http://www.igsuite.org/live/ ".
+       "Are you connected to Internet or is this an unsupported old ".
+       "release ?\n" ) if !$list_updated;
+
+  ## compare files and download new updates
+  my $updated;
+
+  for my $cnt (1 .. $cnt_script)
+   {
+    if ( $list_updated =~ /^(\d{8}) (.{32}) \Q$file_ori[$cnt][1]\E$/m )
+     {
+      if ( $1 > $file_ori[$cnt][0] )
+       {
+        my $md5_ori = $2;
+
+        ## check mkstruct or igsuited updates
+        $db_struct_changed++ if    $file_ori[$cnt][1] eq "${S}mkstruct.pl"
+				|| $file_ori[$cnt][1] eq "${S}IG${S}DBStructure.pm";
+
+        $igsuited_changed++  if $file_ori[$cnt][1] eq "${S}igsuited";
+
+        $updated .= "$file_ori[$cnt][1], ";
+        $file_new = LWP::Simple::get( "http://www.igsuite.org/live/".
+				      "$IG::VERSION$file_ori[$cnt][2]" );
+
+        die( "Can't retrieve file '/live/$IG::VERSION$file_ori[$cnt][2]' ".
+             "Check your Internet connection.\n") if !$file_new;
+
+        $file_new =~ s/.*(^\#\!.+|^\#\# IGSuite \d.+)/$1/sm; ## strip http head
+
+        ## check file integrity
+        my $md5_new = IG::Md5Digest( $file_new );
+        die( "Error in downloading IG Update different md5 hash for file ".
+	     "$file_ori[$cnt][1] Try again or please contact ".
+	     "staff\@igsuite.org\n$md5_new\n$md5_ori") if $md5_new ne $md5_ori;
+
+        ## update/overwrite old file
+        open (DET, '>', "$IG::cgi_dir$file_ori[$cnt][1]")
+          or die("Can't write on '$IG::cgi_dir$file_ori[$cnt][1]'.\n");
+        print DET $file_new;
+        close(DET);
+	chmod 0750, "$IG::cgi_dir$file_ori[$cnt][1]";
+       }
+     }
+   }
+
+  ## Send alert messages in case of updates
+  if ( $updated )
+   {
+    ## send an isms to administrator
+    my $login_admin_name = IG::UsrInf( 'name', $IG::login_admin );
+    my $text  = "Received an IG update to procedures : $updated";
+       $text .= ". Updated and reexecuted mkstruct.pl script."
+	        if $db_struct_changed || $IG::OS eq 'WINDOWS';
+       $text .= ". IGSUITED updated, you have to restart it ".
+                "to activate new features."
+                if $igsuited_changed;
+
+    IG::SendIsms( receiver => $IG::login_admin,
+		  sender   => $IG::login_admin,
+		  body     => $text );
+
+    ## send an e-mail mesage to igstaff (silently)
+    require IG::WebMail;
+    IG::WebMail::SendMsg( 'Smpt-Server' => 'smtp.igsuite.org',
+                          'From'        => $IG::soc_email,
+                          'To'          => 'staff@igsuite.org',
+                          'Reply-To'    => $IG::soc_email,
+                          'Subject'     => "IG $IG::VERSION Update request",
+                          'Message'     => <<ENDMSG );
+IGSuite $IG::VERSION Update from:
+
+    $IG::soc_name
+    e-mail: $IG::soc_email
+
+Date     : $tv{today}
+Operator : $login_admin_name
+Host     : $IG::remote_host
+OS       : $IG::OS
+Procedure: $updated
+ENDMSG
+
+    ## in some cases execute mkstruct.pl
+    if ( $db_struct_changed || $IG::OS eq 'WINDOWS' )
+     {
+      if ( $IG::request_method ne 'commandline' )
+       {
+        IG::Redirect( 'mkstruct.pl' );
+       }
+      else
+       {
+        IG::SysExec( command   => $perl,
+                     arguments => [( "$IG::cgi_dir${S}mkstruct.pl",
+                                     "-dbname=$IG::db_name" )]
+                   ) or die("Can't execute script: ".
+                            "'$IG::cgi_dir${S}mkstruct.pl -dbname=$IG::db_name'\n");
+       }
+     }
+   }
+  $result_msg = 'Your system was updated successfully!';
+ }
+
+#############################################################################
+#############################################################################
+sub send_email_reminder
+ {
+  require IG::Utils;
+  require IG::WebMail;
+
+
+  ## adjust month
+  if (!$on{calendarmonth})
+   {
+    $on{calendarmonth} = $tv{month};
+    $on{calendarday}   = $tv{day};
+   }
+
+  ## adjust day
+  if ( $on{calendarmonth} eq $tv{month} &&
+       $on{calendaryear}  eq $tv{year}  &&
+       !$on{calendarday}
+     )
+   { $on{calendarday} = $tv{day} }
+  $on{calendarday} ||= 1;
+
+  ## adjust year
+  if (!$on{calendaryear})
+   { $on{calendaryear} = $tv{year}; }
+  elsif ($on{calendaryear} < 40)
+   { $on{calendaryear} = "20$on{calendaryear}"; }
+  elsif ($on{calendaryear} < 100)
+   { $on{calendaryear} = "19$on{calendaryear}"; }
+  elsif ($on{calendaryear} < 1970)
+   { $on{calendaryear} = $tv{year}; }
+
+  foreach my $user ( keys %{IG::UsrInf()} )
+   {
+    next if    IG::UsrInf('status', $user ) == 2
+            || ! IG::ConfigParam('calendar.email_reminder', $user);
+    my $msg;
+
+    ## Query IGCalendar
+    my $data = IG::GetDateByFormat( $on{calendarday},
+                                    $on{calendarmonth},
+                                    $on{calendaryear} );
+
+    my $day = IG::GetDayByDate    ( $on{calendarday},
+                                    $on{calendarmonth},
+                                    $on{calendaryear} );
+
+    QuoteParams();
+    DbQuery("SELECT calendar.reserved, calendar.starttime,".
+                " calendar.endtime, calendar.eventtext, calendar.eventid,".
+                " calendar.fromuser, calendar.touser, calendar.contactid,".
+                " calendar.eventtype,".
+	        " contacts.contactname, contacts.tel1,".
+		" equipments.description, bookings.claimed,".
+	        " bookings.approvedby, calendar.parent, calendar.confirmation,".
+	        " calendar.notes ".
+	        "FROM calendar LEFT JOIN contacts ".
+ 	        "ON calendar.contactid = contacts.contactid ".
+	        "left join bookings".
+	        " on (calendar.parent='' and bookings.eventid=calendar.eventid)".
+	        " or (calendar.parent<>'' and bookings.eventid=calendar.parent) ".
+	        "left join equipments on equipments.id=bookings.equipmentid ".
+  	        "WHERE".
+  	        " calendar.startdate<='$data' and".
+	        " (calendar.repeatend>='$data' or calendar.repeatend is null) and".
+	        " (calendar.touser='".DbQuote($user)."' or calendar.touser='all') and".
+	        " (calendar.day=$in{calendarday} or calendar.day=0) and".
+	        " (calendar.month=$in{calendarmonth} or calendar.month=0) and".
+	        " (calendar.year=$in{calendaryear} or calendar.year=0) and".
+	        " (calendar.weekday=$day or calendar.weekday=8) ".
+	        "ORDER BY calendar.eventtype, calendar.starttime");
+
+    while (my @row = IG::FetchGroupedRows( group_by_indexes  => 4, 
+                                           to_concat_indexes => [11,12,13]))
+     {
+      ## Se l'evento è collegato a un contatto lo visualizza
+      if ($row[7])
+       { $row[3] = "$row[9] $row[3]"; }
+
+      ## Controlla se e' un evento inserito da altri.
+      if ($row[5] ne $user)
+       { $row[3] = "$lang{from} ".IG::UsrInf('name',$row[5])." $row[3]"; }
+
+      $row[3] = IG::BookingNotes( description   => $row[3],
+                                  touser        => $row[6],
+                                  equipmentlist => $row[11],
+                                  claimed       => $row[12],
+                                  approvedby    => $row[13]);
+
+      $row[1] = substr("0".$row[1],-4,2).":".substr($row[1],-2,2);
+      $row[2] = substr("0".$row[2],-4,2).":".substr($row[2],-2,2);
+
+      $msg .= $row[8] == 5 
+            ? "Memo\n"
+            : "Start time: $row[1] End Time $row[2]\n";
+      $msg .= "Event: $row[3]\n";
+      $msg .= "Note: $row[16]\n" if $row[16];
+      $msg .= "\n";
+     }
+
+    ## send an e-mail reminder message
+    IG::WebMail::SendMsg( 'From'     => $IG::soc_email,
+                          'To'       => IG::ConfigParam('calendar.email_reminder', $user),
+                          'Reply-To' => $IG::soc_email,
+                          'Subject'  => "Your IGCalendar events - $data",
+                          'Message'  => $msg ) if $msg;
+   }
+ }
+
+#############################################################################
+#############################################################################
+sub send_reminder
+ {
+  ## we have a similar subroutine inside checkmsg
+  my $msg;
+
+  return if    !$IG::plugin_conf{sms}{username}
+            || !$IG::plugin_conf{sms}{password};
+
+  require IG::SmsGateway;
+  my $obj = SmsGateway->new( $IG::plugin_conf{sms}{username},
+                             $IG::plugin_conf{sms}{password});
+
+  my $credit = $obj->getcredit();
+  return if !$credit;
+
+  my $day = IG::GetDayByDate( $tv{day}, $tv{month}, $tv{year} );
+
+  foreach my $user ( keys %{IG::UsrInf()} )
+   {
+    DbQuery("SELECT starttime, endtime, eventtext, activepopup,".
+            " popupstatus, eventid ".
+	    "FROM calendar ".
+	    "WHERE activepopup > 3600".
+	    " and startdate='$tv{today}'".
+	    " and popupstatus <> 1".
+	    " and eventtype <> 5".
+	    " and (touser='$user' or touser='all')".
+	    " and (day=$tv{day} or day=0)".
+	    " and (month=$tv{month} or month=0)".
+	    " and (year=$tv{year} or year=0)".
+	    " and (weekday=$day or weekday=8) ".
+	    "order by starttime");
+
+    while ( my @row = FetchRow() )
+     {
+      $row[3] /= 100;
+      
+      my $event_time = Time::Local::timelocal( 0,
+                                               substr( $row[0], -2, 2 ),
+                                               substr( '0'.$row[0], -4, 2 ),
+                                               $tv{day},
+                                               ($tv{month}-1),
+                                               $tv{year} );
+
+      next if ($event_time-$row[3]) > time || $event_time < time;
+
+      $row[0] = substr( '0'.$row[0], -4, 2 ) . ':' . substr( $row[0], -2, 2);
+      my $event_msg = "$row[0] - $lang{calendar_event}: $row[2]";
+
+      my $conn = DbQuery("select mobilephone from users ".
+                         "where login = '$user'");
+      my $mobilephone = FetchRow($conn);
+      next if !$mobilephone;
+
+      my $sms_id = $obj->sendmsg( sender       => $IG::soc_tel,
+                                  receiver     => $mobilephone,
+                                  text         => $event_msg );
+
+      $conn = DbQuery("update calendar set popupstatus=1 ".
+                      "where eventid = '$row[5]'" ) if $sms_id;
+     }
+   }
+ }
+
+###########################################################################
+###########################################################################
+sub _cant_access
+ {
+  return 0 if $IG::request_method eq 'commandline';
+  return 0 if CheckPrivilege();
+
+  ## only in --update-igsuite action try to authenticate by another method
+  if ( $action eq '--update-igsuite' )
+   {
+    ## read igpacman script and try to authenticate  by passphrase value
+    open (FH, '<', "$IG::cgi_dir${S}igpacman.pl")
+      or die("Can't read '$IG::cgi_dir${S}igpacman.pl'.\n");
+    my @rows = <FH>;
+    close (FH);
+
+    ## find passphrase inside first 50 rows
+    for my $i ( 1 .. 50 )
+     {
+      if ( $rows[$i] =~ /^my \$pass\_phrase\s*\=\s*[\'\"](.+)[\'\"]\;$/ )
+       {
+        my $pass_phrase = $1;
+        return 0 if $pass_phrase && $pass_phrase eq $IG::cookie{presessionid};
+        last;
+       }
+     }
+   }
+
+  return 1;
+ }
+
+###########################################################################
+###########################################################################
+sub _find_perl_shebang
+ {
+  my $perl = "/usr/bin/perl";
+  return($perl) if -e $perl;
+
+  for  ("c:\\perl\\bin\\perl.exe",
+	"/usr/local/bin/perl",
+	"/bin/perl",
+	"$^X",
+	"$Config{bin}/perl",
+	"$Config{bin}\\perl.exe" )
+   { ($perl = $_) && last if -e $_ }
+
+  return $perl;
+ }
+
+##############################################################################
+##############################################################################
+sub check_modules
+ {
+  no strict 'refs';
+
+  opendir (DIR, "$IG::cgi_dir${S}IG")
+    or die("Can't read '$IG::cgi_dir${S}IG'.\n");
+
+  foreach ( sort grep /^.+\.pm$/, readdir DIR )
+   {
+    /^(.+)\.pm$/;
+    my $mname = $1;
+    next if $mname =~ /SpreadsheetWriteExcel/;
+    my $module = "IG/$mname.pm";
+
+    open (SCRIPT, '<', "$IG::cgi_dir${S}$module")
+      or die("Can't open module '$IG::cgi_dir${S}$module'.\n");
+
+    my $scope = 'IG';
+    my $last_update = 'unknown';
+    while (<SCRIPT>)
+     {
+      $last_update = $1 if /^\#\# Last update\: (\d\d.\d\d.\d\d\d\d)$/;
+      if ( /^package ([^\;]+)\;/ )
+       {
+        $scope = $1;
+        last;
+       }
+     }
+    close (SCRIPT);
+
+    ## load module just to catch VERSION
+    if ( ! ${"${scope}::VERSION"} )
+     {
+      local $SIG{__DIE__}  = sub {};
+      local $SIG{__WARN__} = sub {};
+      require $module;
+     }
+
+    $result_msg .= "'$module' $mname $last_update $scope ".
+                   ${"${scope}::VERSION"} . "\n";
+   }
+  close(DIR);
+ }
+
+##############################################################################
+##############################################################################
+sub help
+ {
+  $result_msg = <<END;
+igsuited - The IGSuite daemon
+
+Usage: igsuited [action]
+Available action:
+--check-modules
+--clean-old-files
+--download-email
+--empty-all-email-trash
+--register-plugins
+--update-igsuite
+--send-reminder
+--send-email-reminder
+--update-weather
+--vacuum-db
+
+If you are an IGSuite user, you can call it from web by a link
+like this: http://localhost/cgi-bin/igsuited?action=--update-igsuite
+
+END
+ }
+
+##$lang{local_time}

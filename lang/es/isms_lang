@@ -1,0 +1,23 @@
+## IGSuite 4.0.1
+## Language: isms_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+exhort_him_todo         => 'Exhort Him',
+alert_todo_expired_1    => 'Your Task n.%1$s is expired on %2$s',
+alert_todo_expired_2    => 'The Task n.%2$s owned by %1$s and assigned to you, is expired on %3$s',
+alert_todo_expired_3    => 'The Task n.%1$s assigned by you to %2$s is expired on %3$s',
+alert_offer_notaccepted => 'The offer %1$s dated %2$s and related to %3$s wasn\'t accepted yet after more than %4$s days.',
+answer_to               => 'In answer to',
+reply_isms	        => 'Responde al mensaje',
+isms_arrived	        => 'Isms Llegados',
+isms_sent            	=> 'Isms Enviados',
+isms_deleted	        => 'Isms Borrados',
+delete_isms	        => 'Elimina el mensaje recibido',
+to_time		        => 'a las',
+move_to_basket          => 'in the Basket',
+move_to_todo            => 'in the To Do',
+  ));
+
+1;

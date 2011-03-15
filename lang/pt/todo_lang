@@ -1,0 +1,36 @@
+## IGSuite 4.0.1
+## Language: todo_lang
+## Last update: 01/07/2010
+## Tradução: Marco Túlio de Oliveira Alves
+
+%lang = (%lang,
+   (
+gtd_method              => 'Get everything out of your head. Make decisions about actions required on stuff when it shows up â€” not when it blows up. Organize reminders of your projects and the next actions on them in appropriate categories. Keep your system current, complete, and reviewed sufficiently to trust your intuitive choices about what you\'re doing (and not doing) at any time.',
+tasks_somedays_maybe    => 'Someday and maybe Tasks',
+someday_maybe           => 'Someday/maybe',
+action                  => 'Action',
+exhort_alert            => 'User %1$s exhorts you to complete the task number %2$s',
+set_category            => 'Set category...',
+new_todo_alert          => 'I\'ve assigned you the task number %1$s',
+gantt_chart             => 'Gantt Chart',
+master_task             => 'Master Task',
+set_priority            => 'Set priority...',
+hide_until              => 'Hide until...',
+tasks_expired           => 'Tasks expired',
+tasks_assigned_to_me    => 'Tasks assigned to me',
+tasks_mine              => 'My Tasks',
+tasks_to_start          => 'Tasks to start',
+tasks_completed         => 'Tasks completed',
+tasks_in_progress       => 'Tasks in progress',
+completed_todos         => 'Completed',
+in_progress_todos       => 'In progress',
+new_task                => 'Nova tarefa',
+duration		=> 'Duração',
+backto_project          => 'Voltar ao Projeto',
+to_start		=> 'Iniciar',
+delete_participant	=> 'Remover participantes',
+delete_project		=> 'Remover todos projetos',
+todo_list		=> 'Lista Tarefas',
+   ));
+
+1;

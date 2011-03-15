@@ -1,0 +1,12 @@
+## IGSuite 4.0.1
+## Language: letters_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+letters_protocol	=>'Protocole lettre',
+save_letter		=>'Sauvegarde dans le protocole lettre',
+   ));
+
+1;
+

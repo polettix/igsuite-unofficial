@@ -1,0 +1,23 @@
+## IGSuite 4.0.1
+## Language: isms_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+exhort_him_todo         => 'Sollecita',
+alert_todo_expired_1    => 'Il lavoro di tua proprieta\' n.%1$s risulta scaduto il %2$s',
+alert_todo_expired_2    => 'Il lavoro di proprieta\' di %1$s n.%2$s a te assegnato, risulta scaduto il %3$s',
+alert_todo_expired_3    => 'Il lavoro n.%1$s da te assegnato a %2$s risulta scaduto il %3$s',
+alert_offer_notaccepted => 'L\'offerta %1$s del %2$s intestata a %3$s non è ancora stata accettata superando i %4$s giorni.',
+answer_to               => 'In risposta a',
+reply_isms              => 'Rispondi al messaggio',
+isms_arrived            => 'IGMsg - Messaggi Arrivati',
+isms_sent               => 'IGMsg - Messaggi Inviati',
+isms_deleted            => 'IGMsg - Messaggi Cancellati',
+delete_isms             => 'Cestina il messaggio ricevuto',
+to_time                 => 'alle ore',
+move_to_basket          => 'Sposta nel Cestino',
+move_to_todo            => 'Sposta nei ToDo',
+   ));
+
+1;

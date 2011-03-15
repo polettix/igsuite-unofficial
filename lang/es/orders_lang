@@ -1,0 +1,14 @@
+## IGSuite 4.0.1
+## Language: orders_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+days_to_expire          =>'Days to expire',
+processed_order         =>'Processed Order',
+unprocessed_order       =>'UnProcessed Order',
+in_process_order        =>'Order in process',
+  ));
+
+1;
+

@@ -1,0 +1,11 @@
+## IGSuite 4.0.1
+## Language: archive_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+days_before_alert	=>'Days before alert from expire date',
+save_archive		=>'Save in Archive protocol',
+  ));
+
+1;

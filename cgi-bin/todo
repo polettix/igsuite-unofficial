@@ -1,0 +1,1967 @@
+#! /usr/bin/perl
+# Procedure: todo
+# Last update: 01/07/2010
+#############################################################################
+# IGSuite 4.0.1 - Provides an Office Suite by  simple web interface         #
+# Copyright (C) 2002 Dante Ortolani  [LucaS]                                #
+#                                                                           #
+# This program is free software; you can redistribute it and/or             #
+# modify it under the terms of the GNU General Public License               #
+# as published by the Free Software Foundation; either version 2            #
+# of the License, or (at your option) any later version.                    #
+#                                                                           #
+# This program is distributed in the hope that it will be useful,           #
+# but WITHOUT ANY WARRANTY; without even the implied warranty of            #
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the             #
+# GNU General Public License for more details.                              #
+#                                                                           #
+# You should have received a copy of the GNU General Public License         #
+# along with this program; if not, write to the Free Software Foundation,   #
+# Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.           #
+#############################################################################
+
+use strict;
+use IG;
+IG::MkEnv(__PACKAGE__);
+
+IG::DTable( status         => sub { CheckPrivilege('todo_view') },
+            priority       => sub { CheckPrivilege('todo_view') },
+            del_slave      => sub { CheckPrivilege('todo_view') },
+            delall         => sub { CheckPrivilege('todo_view') },
+            taskaction     => sub { CheckPrivilege('todo_view') },
+            gantt          => sub { CheckPrivilege('todo_view') },
+            exhort_user    => sub { CheckPrivilege('todo_view') },
+            protomaster    => sub { CheckPrivilege('todo_view') },
+            protoslave	   => sub { CheckPrivilege('todo_view') },
+            aggprotomaster => sub { CheckPrivilege('todo_view') },
+            aggprotoslave  => sub { CheckPrivilege('todo_view') },
+            findshow       => sub { CheckPrivilege('todo_view') },
+            findexec       => sub { CheckPrivilege('todo_view') },
+            default_action => sub { CheckPrivilege('todo_view') });
+
+
+##############################################################################
+##############################################################################
+sub _short_cuts
+ {
+  my $html = FormHead( method     => 'get',
+                       fieldstyle => 'margin:0px 0px 0px 0px; ',
+                       labelstyle => 'margin:0px 0px 0px 0px; '.
+                                     'font-size:10px; '.
+                                     'background:transparent; '.
+                                     'border:0px; '.
+                                     'width:140px;',
+                       name       => 'todo',
+                       cgiaction  => 'aggprotomaster' ).
+
+             Input(    style      => 'width:140px; height:70px',
+                       type       => 'textarea',
+                       name       => 'todotext',
+                       validate   => { onerror   => $lang{Err_notitle},
+                                       mandatory => 'true' },
+                       show       => $lang{action},
+                       value      => $on{todotext} ).
+
+             Input(    type       => 'date',
+                       show       => $lang{start_from},
+                       style      => 'font-size:10px; width:65px',
+                       validate   => { onerror   => $lang{Err_issue} },
+                       fieldstyle => 'width:90px',
+                       name       => 'startdate',
+                       value      => $tv{today} ).
+                       
+             Img(      src        => "$IG::img_url/date_empty.gif",
+                       width      => 20,
+                       height     => 20,
+                       onclick    => "todo.startdate.value = '';",
+                       title      => $lang{someday_maybe},
+                       style      => 'position:relative; top:4px;' ).
+
+             Input(    type       => 'date',
+                       name       => 'duedate',
+                       validate   => { onerror   => $lang{Err_due_date},
+                                       mandatory => 'false' },
+                       show       => $lang{due_date},
+                       style      => 'font-size:10px; width:65px',
+                       fieldstyle => 'width:90px' ).
+
+             Input(    name       => 'priority',
+                       style      => 'width:140px; font-size:10px;',
+                       type       => 'select',
+                       show       => $lang{priority},
+                       data       => [([1, "1 $lang{lower}"],
+                                       [2, "2 $lang{low}"],
+                                       [3, "3 $lang{normal}"],
+                                       [4, "4 $lang{high}"],
+                                       [5, "5 $lang{highest}"]
+                                      )] ).
+
+             Input(    name       => 'category',
+                       style      => 'width:140px; font-size:10px;',
+                       type       => 'basictable',
+                       zerovalue  => 'true',
+                       show       => $lang{category},
+                       table      => 'todo_category' ).
+
+             Input(    type       => 'submit',
+                       style      => 'width:140px; margin-top:20px;',
+                       name       => 'Go',
+                       show       => $lang{save} ).
+
+             FormFoot();
+
+  return IG::QuickCreator().
+         TaskHead( title => $lang{new_item},
+                   icon  => 2,
+                   width => 180 ).
+         TaskMsg( $html,2 ).
+         TaskFoot();
+ }
+ 
+##############################################################################
+##############################################################################
+sub default_action
+ {
+  require IG::Utils;
+  my ($bg, $counter);
+
+  $on{order}         ||= 'priority';
+  $on{sortdirection} ||= $IG::list_order || 'desc';
+  $on{category}      ||= IG::ConfigParam('todo.default_category');
+
+  my %base_qs = ( action        => 'default_action',
+                  order         => $on{order},
+	          category      => $on{category},
+	          filter        => $on{filter},
+	          filter_key    => $on{filter_key},
+	          sortdirection => $on{sortdirection},
+	          pos           => $on{pos} );
+
+  ## define tasks order
+  my $query_order = "todo.$on{order} $on{sortdirection},".
+                    ( $on{order} ne 'priority'
+                      ? " todo.priority $on{sortdirection},"
+                      : '').
+                    ( $on{order} ne 'duedate'
+                      ? " todo.duedate $on{sortdirection},"
+                      : '' );
+     $query_order =~ s/\,$//;
+
+  ## define query
+  my $query = ( $on{filter} eq 'all'
+                ? ''
+                : $on{filter} eq 'tasks_somedays_maybe'
+                  ? " todo.startdate='$tv{empty_date}' and"
+                  : " todo.startdate<='$tv{today}' and"
+              ).
+              " ((todo.login='$auth_user' and ".
+                "(todo.owner<>'$auth_user' or todo.owner is null))".
+              " or".
+              " (todo.master='' and todo.owner='$auth_user'))";
+
+  if ( $on{category} && $on{category} ne 'all' )
+   {
+    ## filter a specific category
+    $query .= " and todo.category='" . DbQuote($on{category}) . "'";
+   }
+
+  if ( $on{filter_key} )
+   {
+    my $key = "'".DbQuote($on{filter_key})."'";
+    $query .= " and ( todo.todotext ~* $key or contacts.contactname ~* $key )";
+   }
+
+  if (    $on{filter} eq 'tasks_assigned_to_me' )
+   {
+    $query .= " and todo.master<>''";
+   }
+  elsif ( !$on{filter} || $on{filter} eq 'tasks_mine' )
+   {
+    $query .= " and todo.status<>'1'";
+   }
+  elsif ( $on{filter} eq 'tasks_to_start' )
+   {
+    $query .= " and todo.status<>'1' and todo.progress='0'";
+   }
+  elsif ( $on{filter} eq 'tasks_completed' )
+   {
+    $query .= " and todo.status='1'";
+   }
+  elsif ( $on{filter} eq 'tasks_expired' )
+   {
+    $query .= " and todo.status<>'1' and todo.duedate<='$tv{today}'";
+   }
+  elsif ( $on{filter} eq 'tasks_in_progress' )
+   {
+    $query .= " and todo.status<>'1' and todo.progress>'0'";
+   }
+  elsif ( $on{filter} eq 'tasks_somedays_maybe' )
+   {
+    $query .= " and todo.status<>'1'";
+   }
+
+  ## set a view per pages
+  my $base_url = Qs( 'todo', [qw( category
+                                  filter
+                                  filter_key
+                                  order
+                                  sortdirection )] );
+
+  my ( $limit,
+       $offset,
+       $page_selector ) = IG::MkTaskPaging("select count(*) from todo ".
+                                           "left join contacts ".
+                                           "on todo.contactid = contacts.contactid ".
+                                           "where $query", $base_url);
+
+  HtmlHead( shortcuts => _short_cuts(), 
+            title     => $lang{todo} );
+
+  TaskHead( title     => $lang{todo},
+            minwidth  => 680,
+            width     => '100%' );
+
+ 
+  my $filter_header
+  = HLayer
+     (
+      left_layers =>
+       [( Input( name       => 'filter',
+                 type       => 'select',
+                 labelstyle => "width:auto; background-color:transparent; font-size:10px;".
+                               "border:0; color:$IG::clr{font_menu_title};",
+                 allvalue   => 'true',
+                 value      => 'tasks_mine',
+                 style      => 'margin-top:2px; font-size:10px; height:18px;',
+                 data => [( ['tasks_mine',           $lang{tasks_mine}           ],
+                            ['tasks_assigned_to_me', $lang{tasks_assigned_to_me} ],
+                            ['tasks_to_start',       $lang{tasks_to_start}       ],
+                            ['tasks_in_progress',    $lang{tasks_in_progress}    ],
+                            ['tasks_expired',        $lang{tasks_expired}        ],
+                            ['tasks_completed',      $lang{tasks_completed}      ],
+                            ['tasks_somedays_maybe', $lang{tasks_somedays_maybe} ],
+                          )],
+                 onchange   => "location.href = 'todo?".
+                               "order=$on{order}&amp;".
+                               "category=$on{category}&amp;".
+                               "sortdirection=$on{sortdirection}&amp;".
+                               "pos=1&amp;".
+                               "filter=' + this.options[this.selectedIndex].value;",
+                 show       => $lang{view} ),
+
+          Input( name       => 'category',
+                 type       => 'basictable',
+                 labelstyle => "width:auto; background-color:transparent; font-size:10px;".
+                               "border:0; color:$IG::clr{font_menu_title};",
+                 allvalue   => 'true',
+                 style      => 'margin-top:2px; font-size:10px; height:18px;',
+                 onchange   => "location.href = 'todo?".
+                               "order=$on{order}&amp;".
+                               "sortdirection=$on{sortdirection}&amp;".
+                               "filter=$on{filter}&amp;".
+                               "pos=1&amp;".
+                               "category=' + this.options[this.selectedIndex].value;",
+                 show       => $lang{category},
+                 table      => 'todo_category' ),
+
+          Input( name       => 'filter_key',
+                 type       => 'text',
+                 show       => $lang{filter_set},
+                 labelstyle => "width:auto; background-color:transparent; font-size:10px;".
+                               "border:0; color:$IG::clr{font_menu_title};",
+                 style      => 'width:100px; height:18px; margin-top:2px;'.
+                               'font-size:10px;' ),
+
+          Input( type       => 'button',
+                 style      => 'margin-left:2px; height:18px;',
+                 onclick    => "location.href = 'todo?".
+                               "order=$on{order}&amp;".
+                               "sortdirection=$on{sortdirection}&amp;".
+                               "filter=$on{filter}&amp;".
+                               "pos=1&amp;".
+                               "category=$on{category}&amp;".
+                               "filter_key=' + filter_key.value;",
+                 show       => '>' )
+        )],
+      right_layers =>
+        [(
+          $page_selector
+        )],
+
+      bottom_space => 0,
+      width        => '100%'
+     );
+
+  IG::MkTable( style => 'width:100%; margin-bottom:5px;',
+               values => [([[$filter_header, 'white_space:nowrap', 'menu']])] );
+
+  my $task_action = [( FormHead( name      => 'actionform',
+                                 cgiaction => 'taskaction' ).
+                      
+                       Input( type     => 'hidden',
+                              method   => 'html',
+                              name     => 'btr',
+                              value    => 1 ),
+
+                       Input( name     => 'actiontarget',
+                              data     => _get_action_items(),
+                              onchange => 'submit();',
+                              style    => 'width:150px; font-size:10px;',
+                              zerovalue=> 'true',
+                              value    => '',
+                              override => 1,
+                              type     => 'select'),
+
+                       Img( src   => "$IG::img_url/arrow_link.gif",
+                            width => 13,
+                            style => "position:relative; top:10px; margin:0px 3px -1px 0px;",
+                            height=> 18 )
+                     )];
+
+
+  HLayer( bottom_space => 1,
+          right_layers => $task_action,
+	  left_layers  =>
+	    [(
+              MkButton( text      => $lang{new_item},
+                        link      => Qs('todo',{ %base_qs,
+                        action    => 'protomaster' }) ),
+                                                          
+              MkButton( text      => $lang{update_list},
+                        link      => Qs('todo',\%base_qs) ),
+
+              MkButton( text      => $lang{reports},
+                        link      => 'reports?table=todo',
+                        privilege => CheckPrivilege('todo_report') ),
+                                      
+              MkButton( onclick   => "showPopup('gtd',event);initToolTip_gtd();",
+                        link      => 'javascript:void(0)',
+                        text      => 'G.T.D.' ),
+                            
+              IG::ToolTip( body   => $lang{gtd_method},
+                           show   => '&nbsp;',
+                           title  => 'GTD Method by David Allen',
+                           id     => 'gtd',
+                           width  => '250px'),
+	   )]
+	 ) if !$on{print};
+
+
+  my $order_link = Qs[qw( pos category filter )];
+
+  TaskListMenu
+   ( 
+    [],
+    [$lang{code},
+     "order=todoid&amp;$order_link"],
+    [$lang{action},
+     "order=todotext&amp;$order_link"],
+    [$lang{solution},
+     "order=enddate&amp;$order_link"],
+    [$lang{due_date},
+     "order=duedate&amp;$order_link"],
+    [$lang{priority},
+     "order=priority&amp;$order_link"],
+    [$lang{category},
+     "order=category&amp;$order_link"],
+    $IG::tema eq 'printable_' ? '' : [],
+    [Input( name       => 'allbox',
+            type       => 'checkbox',
+            value      => '',
+            fieldstyle => 'margin:0;padding:0;',
+            override   => 1,
+            onclick    => 'CheckAll();'),
+     '',
+     'width=15']
+   );
+
+  DbQuery("SELECT todo.todoid, todo.startdate, todo.enddate,".
+	  " todo.status, todo.todotext, todo.priority, todo.duedate,".
+	  " todo.master, todo.progress, ".
+	  " todo.contactid, todo.duedate-current_date, contacts.contactname,".
+	  " todo.category, todo.owner, todo.sharemode ".
+	  "FROM todo LEFT JOIN contacts ".
+	  "ON todo.contactid = contacts.contactid ".
+	  "WHERE $query ".
+	  "ORDER BY $query_order ".
+	  "LIMIT $limit OFFSET $offset");
+
+  while ( my @row = FetchRow() )
+   {
+    ++$counter;
+    $bg            = $bg eq $IG::clr{bg_list}
+                   ? $IG::clr{bg_link}
+                   : $IG::clr{bg_list};
+    my $mystyle    = "background-color:$bg; ";
+    my $desc_style = '';
+
+    $row[4] = MkLink( IG::TextElide( string => $row[4], length => 120 ) )
+              if !$on{print} && !$on{xls} && !$on{csv};
+
+    if ( !CkDate($row[2]) )
+     {
+      $row[2] = $row[8]
+	      ? $on{print}
+	        ? "$row[8]%"
+	        : IG::StatusBar( perc => $row[8], width => 60 )
+	      : $lang{to_start};
+     }
+
+    if ( !CkDate($row[6]) )
+     { $row[6] = "&nbsp;" }
+    elsif ($row[10]<1)
+     { $row[6] = Blush($row[6]) }
+
+    if ( $row[9] )
+     { 
+      ## task linked to a contact
+      $row[4] = "<a href=\"contacts?".
+                          "action=showrecord&amp;".
+                          "btr=1&amp;".
+			  "contactid=$row[9]\"".
+                " target=\"mainf\">$row[11]</a> - $row[4]";
+     }
+
+    if ($row[7])
+     { $row[4] = "<span style=\"color:#9933ff\">$row[4]</span>" }
+
+    ## analyze status
+    if    ( $row[3]==1 ) ## completed
+     { $desc_style = "color:$IG::clr{font_low_evidence};"; }
+    elsif ( $row[3]==2 ) ## master of a sub-task
+     { $desc_style = "color:#009900;"; }
+    elsif ( $row[3]==0 ) ## active
+     { $desc_style = "color:$IG::clr{font};"; }
+
+    my $edit_link   = Qs('todo', { %base_qs,
+                                   btr    => 1,
+                                   action => 'proto'.($row[7] ? 'slave' : 'master'),
+                                   todoid => $row[0] } ); 
+
+    my $status_link = Qs('todo', { btr    => 1,
+                                   action => 'status',
+                                   todoid => $row[0] } );
+
+    TaskListItem(
+
+	[Img( src   => $row[14]
+                       ? "$IG::img_url/group_red.gif"
+                       : $row[7] || $row[3]==2
+                         ? "$IG::img_url/group.gif"
+		         : "$IG::img_url/user.gif",
+              width => 16,
+	      title => $lang{edit} ),
+         $edit_link],
+        [$row[0],
+         $edit_link,
+	 "style=\"white-space:nowrap;".
+	     ( $row[3]==1 ? 'text-decoration:Line-through;' : '' ).
+	     "$mystyle\""],
+
+	[$row[4],
+	 '',
+	 "style=\"$mystyle;$desc_style\""],
+
+	[$row[2],
+	 '',
+	 "style=\"$mystyle; white-space:nowrap; font-size:10px;\""],
+
+	[$row[6],
+	 '',
+	 "style=\"$mystyle; font-size:10px; text-align:center;\""],
+
+	[$row[5],
+	 Qs( 'todo', { %base_qs,
+	               action        => 'priority',
+	               priority      => $row[5],
+	               todoid        => $row[0] } ),
+	 "style=\"$mystyle\; text-align:center;\""],
+
+	[GetTableVal('todo_category',$row[12]),
+         Qs( 'todo', { %base_qs,
+                       category      => $row[12] }),
+	 "style=\"$mystyle; text-align:center; font-size:10px;\""],
+
+        $IG::tema eq 'printable_'
+        ? ''
+	: [($row[3] == 1
+  	    ? Img( href    => $status_link,
+	           title   => '',
+                   src     => "$IG::img_url/tickoff.gif" )
+	    : Img( href    => $status_link,    
+                   title   => $lang{close},
+	           src     => "$IG::img_url/tick.gif" ) ),
+	   '',
+	   "style=\"$mystyle\" nowrap"],
+	[Input( type       => 'checkbox',
+		fieldstyle => 'margin:0;padding:0;',
+		name       => 'tids',
+		value      => $row[0]),
+	 '',"style=\"$mystyle\""]
+	        );
+   }
+
+  for ($counter .. ($IG::page_results-1))
+   {
+    $bg = $bg eq $IG::clr{bg_list} ? $IG::clr{bg_link} : $IG::clr{bg_list};
+    TaskListItem( (['&nbsp;', '', "style=\"background-color:$bg\""]) x 9 );
+   }
+  TaskListFoot();
+
+  FormFoot();
+
+  ## A Java script to check all checkbox in a click
+  IG::JsExec( code => <<END );
+   function CheckAll()
+   {
+      for (var i=0;i<document.actionform.elements.length;i++)
+      {
+         var e = document.actionform.elements[i];
+         if (e.name != "allbox")
+            e.checked = document.actionform.allbox.checked;
+      }
+   }
+END
+  
+  TaskFoot();
+  HtmlFoot();
+ }
+ 
+###############################################################################
+###############################################################################
+sub taskaction
+ {
+  ## to be sure $auth_user can modify each tids we use
+  ## always a query like "where id='id' and owner='owner'
+  my %data = @_;
+     $data{tids}         ||= $on{tids};
+     $data{views}        ||= $on{views};
+     $data{actiontarget} ||= $on{actiontarget};
+
+  my @tids = ref($data{tids}) eq 'ARRAY'
+             ? @{$data{tids}}
+             : ($data{tids});
+
+  ## check task ids so they can be not quoted
+  for ( @tids )
+   {
+    die "Invalid task id: $_" if /\’|\'|\\|\//;
+   }
+
+  if ($data{actiontarget} && $data{actiontarget} ne '---')
+   {
+    ## mark as...
+    if ($data{actiontarget} =~ /^mark\:(\d)/)
+     {
+      my $wanted_status = $1;
+      for my $id ( @tids )
+       {
+	next if !$id;
+        _change_status( $id, $wanted_status );
+        ## LogD by _change_status()
+       }
+     }
+    elsif ($data{actiontarget} =~ /^hide\:(\w+)/)
+     {
+      ## hide until...
+      for my $id ( @tids )
+       {
+	next if !$id;
+        my $period = $1;
+        my $date;
+        
+        if ( $period eq 'someday' )
+         {
+          ## someday/maybe
+          $date = $tv{empty_date};
+         }
+        else
+         {
+          if ( $period eq 'mon')
+           {
+            ## hide until monday
+            $period = (1,7,6,5,4,3,2)[IG::GetDayByDate()] . 'd';
+           }
+          ## sum date
+          $date = IG::SumDate( undef,undef,undef, "+$period");
+         }
+
+        DbQuery("update todo set startdate='$date' ".
+                "where todoid='".DbQuote($id)."' and owner='$auth_user'");
+        LogD("hide until '$date'", 'update', 'todo', $id);
+       }
+     }
+    elsif ( $data{actiontarget} eq 'delete' )
+     {
+      ## delete
+      for my $id ( @tids )
+       {
+	next if !$id;
+        _del_task( $id )
+          or IG::Warn("[520] You cannot delete this task! [$id]");
+        ## LogD by _del_task()
+       }
+     }
+    elsif ($data{actiontarget} =~ /^priority\:(\d)/)
+     {
+      ## change task priority
+      my $priority = $1;
+      for my $id ( @tids )
+       {
+        next if !$id;
+        DbQuery("update todo set priority='$priority' ".
+                "where todoid='".DbQuote($id)."' and owner='$auth_user'");
+        LogD("change priority to '$priority'", 'update', 'todo', $id);
+       }
+     }
+    elsif ($data{actiontarget} =~ /^category\:(\d+)/)
+     {
+      ## change task category
+      my $category = $1;
+      for my $id ( @tids )
+       {
+        next if !$id;
+        DbQuery("update todo set category='$category' ".
+                "where todoid='".DbQuote($id)."' and owner='$auth_user'");
+        LogD("update category to '$category'", 'update', 'todo', $id);
+       }
+     }
+   }
+
+  IG::BackToReferer();
+ }
+
+###############################################################################
+###############################################################################
+sub _get_action_items
+ {
+  my %data = @_;
+  my @actionitems;
+
+  ## Add separator
+  push @actionitems, ['---','- 'x15];
+
+  ## Add delete action
+  push @actionitems, ['delete',  $lang{delete}];
+
+  ## Add separator
+  push @actionitems, ['---','- 'x15];
+
+  ## Mark as
+  push @actionitems, ["mark:1",   $lang{mark_as_done}  ];
+  push @actionitems, ["mark:0",   $lang{mark_as_undone}];
+
+  ## Add separator
+  push @actionitems, ['---','- 'x15];
+
+  ## Hide Until
+  push @actionitems, ['---',          $lang{hide_until}           ];
+  push @actionitems, ['hide:1d',      "     $lang{tomorrow}"      ];
+  push @actionitems, ['hide:mon',     "     $lang{day_1}"         ];
+  push @actionitems, ['hide:7d',      "     1 $lang{week}"        ];
+  push @actionitems, ['hide:1m',      "     1 $lang{month}"       ];
+  push @actionitems, ['hide:1y',      "     1 $lang{year}"        ];
+  push @actionitems, ['hide:someday', "     $lang{someday_maybe}" ];
+
+  ## Add separator
+  push @actionitems, ['---','- 'x15];
+
+  ## Add or remove email tags
+  push @actionitems, ['---',   $lang{set_priority}];
+  my @priorities = ( undef,
+                     "1 $lang{lower}",
+                     "2 $lang{low}",
+                     "3 $lang{normal}",
+                     "4 $lang{high}",
+                     "5 $lang{highest}" );
+  for ( 1 .. 5 )
+   { push @actionitems, ["priority:$_", "     $priorities[$_]"]; }    
+
+  ## Add separator
+  push @actionitems, ['---','- 'x15];
+
+  ## Set categories
+  push @actionitems, ['---',   $lang{set_category}];
+  my $cnt;
+  for( grep {$_} GetTableVal('todo_category', 'ALL') )
+   {
+    $cnt++;
+    push @actionitems, ["category:$cnt", "     $_"];
+   }
+
+  return \@actionitems; 
+ }
+
+##############################################################################
+##############################################################################
+sub gantt
+ {
+  my $clrcnt = 0;
+  my @colors = qw( ff0000 ff00ff 00ff00 0000ff 00ffff ffff00 ff0000 );
+
+  HtmlHead( title      => $lang{gantt_chart},
+            css        => "<link".
+                          " rel=\"stylesheet\"".
+                          " type=\"text/css\"".
+                          " href=\"$IG::img_url/jsgantt.css\"/>",
+            javascript => IG::JsExec( src => "$IG::img_url/jsgantt.js" ) );
+
+  TaskHead( title      => $lang{gantt_chart},
+            minwidth   => 500,
+	    icon       => 0 ); 
+
+  PrOut <<END;
+<div style="position:relative" class="gantt" id="GanttChartDIV"></div>
+<script>
+
+  var g = new JSGantt.GanttChart('g',document.getElementById('GanttChartDIV'), 'day');
+
+  g.setShowRes(0); // Show/Hide Responsible (0/1)
+  g.setShowDur(1); // Show/Hide Duration (0/1)
+  g.setShowComp(1); // Show/Hide % Complete(0/1)
+  g.setCaptionType('Resource');  // Set to Show Caption (None,Caption,Resource,Duration,Complete)
+  g.setShowStartDate(0); // Show/Hide Start Date(0/1)
+  g.setShowEndDate(0); // Show/Hide End Date(0/1)
+  g.setDateInputFormat('dd/mm/yyyy')  // Set format of input dates ('mm/dd/yyyy', 'dd/mm/yyyy', 'yyyy-mm-dd')
+  g.setDateDisplayFormat('dd/mm/yyyy') // Set format to display dates ('mm/dd/yyyy', 'dd/mm/yyyy', 'yyyy-mm-dd')
+  g.setFormatArr("day","week","month","quarter") // Set format options (up to 4 : "minute","hour","day","week","month","quarter")
+
+  if( g )
+   {
+END
+
+  DbQuery("SELECT todoid, login, duedate, progress, todotext,".
+          " priority, startdate, duration, master ".
+          "FROM todo ".
+          "WHERE master='".DbQuote($on{tid})."' or todoid='".DbQuote($on{tid})."' ".
+	  "ORDER by master, startdate, todoid");
+
+  my $masterEndDate;
+  my $counter = 1;
+  while( my @row = FetchRow() )
+   {
+    checkEmpty: { 
+      last checkEmpty if $row[2] ne $tv{empty_date};
+
+      ($row[2] = IG::SumDate( IG::GetValuesByDate( $row[6] ), $row[7] )) && last checkEmpty
+            if $row[7] =~ /^\d+$/;
+      
+      ($row[2] = $masterEndDate) && last checkEmpty 
+            if $masterEndDate;
+      
+      $row[2] = IG::SumDate( IG::GetValuesByDate( $row[6] ), "+1y" ); 
+    }
+    $masterEndDate = $row[2] unless $row[8];
+
+    PrOut _gantt_data( id     => $counter,
+                       title  => $row[4],
+                       top    => $counter==1 ? '1' : '0',
+                       start  => $row[6],
+                       end    => $row[2],
+                       color  => $colors[$clrcnt],
+		       link   => $row[8] 
+		                 ? Qs( 'todo', { action => 'protoslave',
+				                 todoid => $row[0],
+				                 master => $row[8] } )
+				 : Qs( 'todo', { action => 'protomaster',
+				                 todoid => $row[0] } ),
+                       owner  => IG::UsrInf('name',$row[1]),
+                       perc   => $row[3] || '0' );
+                       
+    $counter++;
+    $clrcnt = $clrcnt == 7 ? 0 : $clrcnt+1;
+   }
+
+  PrOut <<END;
+
+    g.Draw();	
+    g.DrawDependencies();
+   }
+  else
+   {alert("not defined");}
+
+</script>
+END
+
+  TaskFoot();
+  HtmlFoot();
+ }
+ 
+##############################################################################
+##############################################################################
+sub _gantt_data
+ {
+  my %data  = @_;
+  my $task  = 'g.AddTaskItem(new JSGantt.TaskItem(';
+  my @values;
+
+  push @values, $data{id};
+
+  push @values, IG::MkEntities($data{title});
+  
+  $data{start} = join '/', IG::GetValuesByDate($data{start});
+  push @values, $data{start};
+
+  $data{end}   = join '/', IG::GetValuesByDate($data{end} || $tv{end_year});
+  push @values, $data{end};
+  
+  push @values, $data{color};
+
+  push @values, $data{link};
+
+  push @values, $data{milestone} || '0';
+  
+  push @values, IG::MkEntities($data{owner});
+  
+  push @values, $data{perc} || '0';
+  
+  push @values, $data{top} || '0';
+
+  push @values, $data{top} ? '0' : '1';  
+
+  for ( @values )
+   { $task .= (/^\d\d*$/ ? $_ : "'$_'") . ','; }
+  $task .= "1));\n";
+
+  return $task;  
+ }
+
+##############################################################################
+##############################################################################
+sub protomaster
+ {
+  require IG::Utils;
+
+  my %ajax_req;
+  my %participant;
+  my @participant;
+  my $counter;
+
+  if ($on{todoid} && $on{action} ne 'aggprotomaster')
+   {
+    DbQuery("SELECT * FROM todo where todoid='".DbQuote($on{todoid})."'");
+    (	$on{login},
+	$on{todoid},
+	$on{startdate},
+	$on{enddate},
+	$on{status},
+	$on{todotext},
+	$on{priority},
+	$on{owner},
+	$on{duedate},
+	$on{description},
+	$on{sharemode},
+	$on{master},
+	$on{progress},
+	$on{contactid},
+	$on{category},
+	$on{duration},
+	$on{issue} ) = FetchRow();
+   }
+
+  ## Set Ajax requests for igforms
+  if ( $on{todoid} )
+   {
+    $ajax_req{getpersonalizedfieldslist}
+    = Qs( 'igforms', { action   => 'build_form_mask',
+                       igformid => 'todo',
+                       recordid => $on{todoid} } );
+   }
+
+  my $pagetitle = "IGToDo - $lang{code} ".
+		  ( $on{todoid} ? $on{todoid} : $lang{to_assign} );
+
+  HtmlHead( ajax_req   => \%ajax_req,
+            title      => $pagetitle );
+
+  TaskHead( title      => $pagetitle,
+            minwidth   => 690,
+	    icon       => 0 );
+
+  FormHead( cgiaction  => 'aggprotomaster',
+            ckchanges  => 'true',
+	    labelstyle => 'width: 90px');
+
+  Input(    type       => 'hidden',
+            name       => 'todoid' );
+
+  Input(    type       => 'hidden',
+            name       => 'issue' );
+
+  my $pan0  = Input( show      => $lang{action},
+                     type      => 'textarea',
+                     name      => 'todotext',
+                     validate  => { onerror   => $lang{Err_notitle},
+                                    mandatory => 'true' },
+                     labelstyle=> 'width:90px; height:50px;',
+                     style     => 'width:530px; height:40px;').
+
+              Input( show      => $lang{description},
+                     type      => 'textarea',
+                     name      => 'description',
+                     style     => 'width:530px; height:80px;',
+                     labelstyle=> 'width:90px; height:90px;').
+
+              Input( show      => $lang{contact},
+                     style     => 'width:515px;',
+                     containerstyle=> 'padding-top:15px;',
+                     type      =>'contactfinder').
+
+              Input( type      => 'label',
+                     show      => $lang{owner},
+                     fieldstyle=> 'width: 110px',
+                     data      => IG::UsrInf('name',$on{owner})
+                                  || IG::UsrInf('name',$auth_user) ).
+
+              Input( type      => 'text',
+                     show      => $lang{duration},
+                     style     => 'width: 110px',
+                     name      => 'duration',
+                     float     => 'left',
+                     size      => 10 ).
+
+              Input( type      => 'basictable',
+                     zerovalue => 'true',
+                     float     => 'left',
+                     table     => 'todo_category',
+                     style     => 'font-size:10px;width:110px',
+                     show      => $lang{category},
+                     name      => 'category' ).
+  
+              Input( show      => $lang{start_from},
+                     type      => 'date',
+                     fieldstyle=> 'width: 110px',
+                     style     => 'width: 85px',
+                     validate  => { onerror   => $lang{Err_issue} },
+                     value     => $tv{today},
+                     name      => 'startdate' ).
+
+              Input( show      => $lang{due_date},
+                     type      => 'date',
+                     fieldstyle=> 'width: 110px',
+                     validate  => { onerror   => $lang{Err_due_date},
+                                    mandatory => 'false' },
+                     style     => 'width: 85px',
+                     float     => 'left',
+                     name      => 'duedate' ).
+
+              Input( show      => $lang{solution},
+                     type      => 'date',
+                     style     => 'width: 85px',
+                     float     => 'left',
+                     validate  => { onerror   => $lang{Err_end_date},
+                                    mandatory => 'false' },
+                     name      => 'enddate' ).
+
+              Input( show      => $lang{priority},
+                     type      => 'select',
+                     style     => 'width: 110px',
+                     name      => 'priority',
+                     data      => [([1, $lang{lower}],
+                                    [2, $lang{low}],
+                                    [3, $lang{normal}],
+                                    [4, $lang{high}],
+                                    [5, $lang{highest}])]).
+
+              Input( show      => $lang{reserve},
+                     type      => 'select',
+                     style     => 'width: 110px',
+                     name      => 'sharemode',
+                     float     => 'left',
+                     data      => [([0, $lang{public}],
+                                    [1, $lang{private}])]).
+
+              Input( show      => $lang{progress},
+                     name      => 'progress',
+                     float     => 'left',
+                     style     => 'width:110px',
+                     type      => 'select',
+                     data      =>[(['0', $lang{to_start}],
+                                   [10,  "10% $lang{in_progress}"],
+                                   [20,  "20% $lang{in_progress}"],
+                                   [30,  "30% $lang{in_progress}"],
+                                   [40,  "40% $lang{in_progress}"],
+                                   [50,  "50% $lang{in_progress}"],
+                                   [60,  "60% $lang{in_progress}"],
+                                   [70,  "70% $lang{in_progress}"],
+                                   [80,  "80% $lang{in_progress}"],
+                                   [90,  "90% $lang{in_progress}"],
+                                   [100, "100% $lang{completed}"])]).
+
+              Input( type      => 'submit',
+                     style     => "visibility: hidden;");
+
+
+  my $pan1 = TaskListMenu( [ $lang{code}         ],
+                           [ $lang{contact_name} ],
+                           [ $lang{action}       ],
+                           [ $lang{due_date}     ],
+                           [ $lang{priority}     ],
+                           [ $lang{status}       ],
+                           [] );
+
+  if ( $on{todoid} )
+   {
+    DbQuery("SELECT todoid, login, duedate, progress, todotext,".
+            " priority, startdate ".
+	    "FROM todo where master='".DbQuote($on{todoid})."' ".
+	    "ORDER by priority desc, todoid");
+
+    while( my @row = FetchRow() )
+     {
+      push @participant, $row[0];
+      ++$counter;
+
+      $pan1 .= TaskListItem
+                (
+	[$row[0],
+	 Qs( 'todo', { action => 'protoslave',
+                       todoid => $row[0],
+                       btr    => $on{btr},
+                       master => $on{todoid} }) ],
+	[IG::UsrInf('name',$row[1]),
+	 '',
+	 'nowrap'],
+	[MkLink( IG::TextElide( string => $row[4], length => 60 ) )],
+	[CkDate($row[2])],
+	[$row[5],
+	 Qs( 'todo', { action   => 'priority',
+	               priority => $row[5],
+	               todoid   => $row[0],
+	               master   => $on{todoid},
+	               backto   => 'protoslave' }),
+	 "align=center"],
+	[$on{print} ? "$row[3]%" : IG::StatusBar( perc => $row[3] )],
+	[Img( href    => Qs( 'todo', { action => 'del_slave',
+	                               todoid => $row[0],
+	                               master => $on{todoid} }),
+              title   => $lang{delete_participant},
+              class   => 'noprint',
+	      src     => "$IG::img_url/delete.gif" )]
+		);
+     }
+   }
+
+  $pan1 .= TaskListFoot(10);
+
+  ## submit & delete buttons
+  $pan1 = TaskMsg(
+  HLayer ( bottom_space=>0,
+	   left_layers=>[( Input( type       => 'logins',
+	                          style      => 'width:200px',
+	                          show       => $lang{add_participant},
+	                          zerovalue  => 'true',
+	                          labelstyle => 'width:auto;',
+	                          name       => 'participant2add' ),
+
+                           Input( type       => 'submit',
+                                  name       => 'add_participant',
+                                  value      => $lang{add} )
+			)],
+           right_layers=>[(Input( type       => 'button',
+                                  name       => 'gantt',
+                                  onclick    => "winPopUp('".
+                                                Qs( 'todo',
+                                                    { action => 'gantt',
+                                                      tid    => $on{todoid} }).
+                                                "',900,500,'Gantt');",
+                                  value      => $lang{gantt_chart} ) )],
+	),7) . $pan1 if !$on{print};
+
+  ## if we have slaves set task status=2
+  Input( type      => 'hidden',
+         name      => 'status',
+         ovverride => 1,
+         value     => 2 ) if $counter;
+
+  my $pan3 = $on{todoid}
+           ? [ $lang{open_repository},
+               "<iframe frameborder=\"0\" style=\"padding:0px; width:650px; height:290px;\"".
+               " src=\"\" id=\"files\" name=\"myframe\"></iframe>",
+               "\$('files').src='filemanager?".
+                           "repid=". MkUrl($on{todoid}). "&amp;repapp=todo'" ]
+           : [ $lang{open_repository} ];
+
+  my $pan4 = [ $lang{personalized_fields},
+               $on{todoid} ? '&nbsp;' : '',
+               "getpersonalizedfieldslist".
+               "(['NO_CACHE'],['layer_content3'])" ];
+
+
+  IG::TabPane( width      => 680,
+               height     => 320,
+               label_type => 1,
+               margin_top => 5,
+               default    => $on{default_panel},
+               data       => [( [ 'IGToDo',            $pan0 ],
+                                [ $lang{participants}, $pan1 ],
+                                $pan3,
+                                $pan4 )] );
+
+  HLayer ( left_layers => [( Input( type  => 'submit',
+                                    value =>  $lang{save} ),
+
+                             Input(     type        => 'button',
+                                        show        => $lang{back_to_list},
+                                        onclick     => "document.location='".
+                                                       Qs( 'igsuite',
+                                                           { action  => 'backtoreferer',
+                                                             default => 'todo',
+                                                             btr     => $on{btr} } ). "';" ),
+                             FormFoot() )],
+           
+           right_layers=> [( FormHead(	onsubmitask => $lang{are_you_sure},
+		                   	float       => 'left',
+		                 	name        => 'delall',
+		                  	cgiaction   => 'delall').
+
+                             Input(    	type=>'submit',
+			                value=>$lang{delete_project}).
+
+                             Input(     type=>'hidden',
+			                name=>'todoid').
+                             FormFoot() )],
+           bottom_space => 0
+	 );
+
+  TaskFoot( comments       => $on{todoid} ? 'yes' : '',
+            commentid      => $on{todoid},
+            commentowner   => $on{owner},
+            commentbackurl => Qs{ action => 'protomaster',
+                                  todoid => $on{todoid} } );
+  HtmlFoot();
+  1;
+ }
+
+############################################################################
+############################################################################
+sub aggprotomaster
+{
+ ## read task info
+ DbQuery("select todoid, login, owner from todo ".
+         "where todoid='".DbQuote($on{todoid})."' limit 1" );
+ my ( $_todoid, $_login, $_owner ) = FetchRow();
+
+ ## check privilege
+ if ( $_todoid && $_login ne $auth_user && $_owner ne $auth_user )
+  {
+   IG::Warn( '[1028] ' . $lang{Err_privileges} );
+   return;
+  }
+
+ ## force a 'completed' status in some cases
+ if ( $on{progress} == 100 )
+  {
+   $on{status}      = 1;
+   $on{enddate}   ||= $tv{today};
+   $on{startdate} ||= $tv{today};
+  }
+
+ ## Validate Form values
+ push @IG::errmsg, IG::FormValidate();
+ protomaster() && return if @IG::errmsg;
+
+ my $master_tid = DbQuote($on{todoid}) || _get_new_tid();
+
+ DbWrite( overwrite_clause => "todoid='$master_tid'",
+          action           => 'insert',
+          table            => 'todo',
+          values           => [ $auth_user,
+                                $master_tid,
+                                $on{startdate}   || $tv{empty_date},
+                                $on{enddate}     || $tv{empty_date},
+                                $on{add_participant} ? 2 : ($on{status} || '0'),
+                                $on{todotext},
+                                $on{priority}    || '1',
+                                $on{owner}       || $auth_user,
+                                $on{duedate}     || $tv{empty_date},
+                                $on{description},
+                                $on{sharemode}   || '0',
+                                '',
+                                $on{progress}    || '0',
+                                $on{contactid},
+                                $on{category}    || '0',
+                                $on{duration},
+                                $on{issue}       || $tv{today} ]);
+
+ LogD('', 'insert', 'todo', $master_tid);
+
+ if ( $on{add_participant} )
+  {
+   ## add a new participant (a sub-task)
+   my $slave_tid = _get_new_tid();
+
+   DbWrite( overwrite_clause => "todoid='$slave_tid'",
+            action           => 'insert',
+            table            => 'todo',
+            values           => [ $on{participant2add},
+                                  $slave_tid,
+                                  $on{startdate}   || $tv{today},
+                                  $on{enddate}     || $tv{empty_date},
+                                  0,
+                                  $on{todotext},
+                                  $on{priority}    || '1',
+                                  $auth_user,
+                                  $on{duedate}     || $tv{empty_date},
+                                  $on{description},
+                                  $on{sharemode}   || '0',
+                                  $master_tid,
+                                  '0',
+                                  $on{contactid},
+                                  $on{category}    || '0',
+                                  $on{duration},
+                                  $on{issue}       || $tv{today} ]);
+
+   ## alert participant
+   IG::SendIsms( receiver => $on{participant2add},
+                 body     => sprintf( $lang{new_todo_alert},
+                                      '<noparse>'.
+                                      "<a href=\"todo?action=protoslave&amp;".
+                                                "todoid=$slave_tid\">$slave_tid</a>".
+                                      '</noparse>' )
+               ) if $on{participant2add} ne $auth_user;
+
+   ## log action
+   LogD("insert a slave to master '$master_tid'", 'insert', 'todo', $slave_tid);
+
+   IG::Redirect("todo?action=protoslave&amp;todoid=$slave_tid");
+  }
+ elsif ( $on{delete_participant} )
+  {
+   ## delete prarticipants
+   QuoteParams();
+   if ( $on{participant2del} ne 'all' )
+    {
+     ## delete a specific participant
+     DbQuery("delete from todo where todoid='$in{participant2del}'");
+     LogD('delete task', 'delete', 'todo', $on{participant2del} );
+    }
+   else
+    {
+     ## delete all participant
+     DbQuery( query => [("delete from todo where master='$master_tid'",
+			 "update todo set status=0 where todoid='$master_tid'"
+			)] );
+     LogD('delete all slaves task', 'delete', 'todo', $master_tid);
+    }
+
+   IG::Redirect( Qs( 'todo', { action        => 'protomaster',
+                               default_panel => 1,
+                               todoid        => $master_tid } ));
+  }
+ else
+  {
+   IG::BackToReferer( default => Qs( 'todo',
+                                           [qw( pos
+                                                order
+                                                filter
+                                                category
+                                                sortdirection )] ));
+  }
+}
+
+##############################################################################
+##############################################################################
+sub _get_new_tid
+ {
+  ## mk a new todo id
+  DbQuery("SELECT max(todoid) FROM todo");
+  my $tid = FetchRow();
+     $tid ||= 100000001;
+     $tid++;
+  return $tid;
+ }
+
+##############################################################################
+##############################################################################
+sub protoslave
+ {
+  require IG::Utils;
+
+  my %ajax_req;
+  my $counter;
+
+  if ($on{todoid} && $on{action} ne 'aggprotoslave')
+   {
+    DbQuery("SELECT * FROM todo where todoid='".DbQuote($on{todoid})."'");
+    (	$on{login},
+	$on{todoid},
+	$on{startdate},
+	$on{enddate},
+	$on{status},
+	$on{todotext},
+	$on{priority},
+	$on{owner},
+	$on{duedate},
+	$on{description},
+	$on{sharemode},
+	$on{master},
+	$on{progress},
+	$on{contactid},
+	$on{category},
+	$on{duration},
+	$on{issue} ) = FetchRow();
+   }
+
+  ## Set Ajax requests for igforms
+  if ( $on{todoid} )
+   {
+    $ajax_req{getpersonalizedfieldslist}
+    = Qs( 'igforms', { action   => 'build_form_mask',
+                       igformid => 'todo',
+                       recordid => $on{todoid} } );
+   }
+
+  my $pagetitle = "IGToDo - $lang{code}:$on{todoid} - $lang{master_task}:$on{master}";
+  HtmlHead( ajax_req   => \%ajax_req,
+            title      => $pagetitle );
+
+
+  TaskHead( title      => $pagetitle,
+            minwidth   => 690,
+	    icon       => 0 );
+
+  my $ro_mode = 1 if    $on{todoid}
+                     && $on{owner} ne $auth_user
+                     && !CheckPrivilege('sys_user_admin');
+
+  FormHead( cgiaction  => 'aggprotoslave',
+            ckchanges  => 'true',
+	    labelstyle => 'width: 90px');
+
+  Input(    type       => 'hidden',
+            name       => 'todoid' );
+
+  Input(    type       => 'hidden',
+            name       => 'master');
+
+  Input(    type       => 'hidden',
+            name       => 'owner');
+
+  Input(    type       => 'hidden',
+            name       => 'login');
+
+  Input(    type       => 'hidden',
+            name       => 'btr');
+
+  Input(    type       => 'hidden',
+            name       => 'issue');
+
+  my $pan0  = Input( show      => $lang{action},
+                     type      => 'textarea',
+                     readonly  => $ro_mode,
+                     name      => 'todotext',
+                     validate  => { onerror   => $lang{Err_notitle},
+                                    mandatory => 'true' },
+                     labelstyle=> 'width:90px; height:50px;',
+                     style     => 'width:530px; height:40px;').
+
+              Input( show      => $lang{description},
+                     type      => 'textarea',
+                     name      => 'description',
+                     style     => 'width:530px; height:80px;',
+                     labelstyle=> 'width:90px; height:90px;').
+
+              Input( show      => $lang{contact},
+                     style     => 'width:520px;',
+                     containerstyle=> 'padding-top:15px;',
+                     type      =>'contactfinder').
+
+              Input( type      => 'label',
+                     show      => $lang{owner},
+                     readonly  => $ro_mode,
+                     fieldstyle=> 'width:110px; font-size:10px;',
+                     data      => IG::UsrInf('name',$on{owner})
+                                  || IG::UsrInf('name',$auth_user) ).
+
+              Input( type      => 'text',
+                     show      => $lang{duration},
+                     style     => 'width: 110px',
+                     name      => 'duration',
+                     float     => 'left',
+                     size      => 10 ).
+
+              Input( type      => 'basictable',
+                     zerovalue => 'true',
+                     float     => 'left',
+                     table     => 'todo_category',
+                     style     => 'font-size:10px;width:110px',
+                     show      => $lang{category},
+                     name      => 'category' ).
+  
+              Input( show      => $lang{start_from},
+                     type      => 'date',
+                     fieldstyle=> 'width: 110px',
+                     style     => 'width: 85px',
+                     validate  => { onerror   => $lang{Err_issue},
+                                    mandatory => 'true' },
+                     value     => $tv{today},
+                     name      => 'startdate' ).
+
+              Input( show      => $lang{due_date},
+                     type      => 'date',
+                     readonly  => $ro_mode,
+                     fieldstyle=> 'width: 110px',
+                     validate  => { onerror   => $lang{Err_due_date},
+                                    mandatory => 'true' },
+                     style     => 'width: 85px',
+                     float     => 'left',
+                     name      => 'duedate' ).
+
+              Input( show      => $lang{solution},
+                     type      => 'date',
+                     style     => 'width: 85px',
+                     float     => 'left',
+                     validate  => { onerror   => $lang{Err_end_date},
+                                    mandatory => 'false' },
+                     name      => 'enddate' ).
+
+              Input( show      => $lang{priority},
+                     type      => 'select',
+                     style     => 'width: 110px',
+                     readonly  => $ro_mode,
+                     name      => 'priority',
+                     data      => [([1, $lang{lower}],
+                                    [2, $lang{low}],
+                                    [3, $lang{normal}],
+                                    [4, $lang{high}],
+                                    [5, $lang{highest}])]).
+
+              Input( show      => $lang{reserve},
+                     type      => 'select',
+                     style     => 'width: 110px',
+                     name      => 'sharemode',
+                     float     => 'left',
+                     data      => [([0, $lang{public}],
+                                    [1, $lang{private}])]).
+
+              Input( show      => $lang{progress},
+                     name      => 'progress',
+                     float     => 'left',
+                     style     => 'width:110px',
+                     type      => 'select',
+                     data      =>[(['0', $lang{to_start}],
+                                   [10,  "10% $lang{in_progress}"],
+                                   [20,  "20% $lang{in_progress}"],
+                                   [30,  "30% $lang{in_progress}"],
+                                   [40,  "40% $lang{in_progress}"],
+                                   [50,  "50% $lang{in_progress}"],
+                                   [60,  "60% $lang{in_progress}"],
+                                   [70,  "70% $lang{in_progress}"],
+                                   [80,  "80% $lang{in_progress}"],
+                                   [90,  "90% $lang{in_progress}"],
+                                   [100, "100% $lang{completed}"])]).
+
+              Input( type      => 'submit',
+                     style     => "visibility: hidden;");
+
+  my $pan3 = $on{todoid}
+           ? [ $lang{open_repository},
+               "<iframe frameborder=\"0\" style=\"padding:0px; width:650px; height:290px;\"".
+               " src=\"\" id=\"files\" name=\"myframe\"></iframe>",
+               "\$('files').src='filemanager?".
+                           "repid=". MkUrl($on{todoid}). "&amp;repapp=todo'" ]
+           : [ $lang{open_repository} ];
+
+  my $pan4 = [ $lang{personalized_fields},
+               $on{todoid} ? '&nbsp;' : '',
+               "getpersonalizedfieldslist".
+               "(['NO_CACHE'],['layer_content3'])" ];
+
+
+  IG::TabPane( width      => 680,
+               height     => 320,
+               label_type => 1,
+               margin_top => 5,
+               default    => $on{default_panel},
+               data       => [( [ 'IGToDo',            $pan0 ],
+                                $pan3,
+                                $pan4 )] );
+
+  Input( type  => 'submit',
+         name  => 'save',
+         value =>  $lang{save} );
+
+  Input( type  => 'submit',
+         name  => 'back2master',
+         float => 'right',
+         show  => $lang{back_to_list} );
+
+  FormFoot();
+
+  TaskFoot( comments       => $on{todoid} ? 'yes' : '',
+            commentid      => $on{todoid},
+            commentowner   => $on{owner},
+            commentbackurl => Qs{ action => 'protoslave',
+                                  todoid => $on{todoid} } );
+  HtmlFoot();
+  1;
+ }
+
+##############################################################################
+##############################################################################
+sub aggprotoslave
+ {
+  ## read master info
+  DbQuery("select progress from todo ".
+          "where todoid='".DbQuote($on{master})."' limit 1" );
+  my ( $_master_progress ) = FetchRow();
+
+  ## read slave info
+  DbQuery("select login, owner from todo ".
+          "where todoid='".DbQuote($on{todoid})."' limit 1" );
+  my ( $_slave_login, $_slave_owner ) = FetchRow();
+
+  ## check privilege
+  if ( $_slave_login ne $auth_user && $_slave_owner ne $auth_user )
+   {
+    IG::Warn( '[1381]' . $lang{Err_privileges} );
+    return;
+   }
+
+  ## get slaves progress average
+  DbQuery("select avg(progress) from todo ".
+          "where master='".DbQuote($on{master})."'" );
+  my ($_slaves_average) = FetchRow();
+  $_slaves_average = substr(int($_slaves_average),0,1) . '0';
+
+  if ( !$on{back2master} )
+   {
+    ## force a close status is some cases
+    if ( $on{progress} == 100 )
+     {
+      $on{status}    = 1;
+      $on{enddate} ||= $tv{today}
+     }
+
+    ## Validate Form values
+    push @IG::errmsg, IG::FormValidate();
+    protoslave() && return if @IG::errmsg;
+
+    DbWrite( overwrite_clause => "todoid='".DbQuote($on{todoid})."'",
+             action           => 'insert',
+             table            => 'todo',
+             values           => [ $on{login}       || $auth_user,
+                                   $on{todoid},
+                                   $on{startdate}   || $tv{today},
+                                   $on{enddate},
+                                   $on{status}      || '0',
+                                   $on{todotext},
+                                   $on{priority}    || '1',
+                                   $on{owner}       || $auth_user,
+                                   $on{duedate},
+                                   $on{description},
+                                   $on{sharemode}   || '0',
+                                   $on{master},
+                                   $on{progress}    || '0',
+                                   $on{contactid},
+                                   $on{category}    || '0',
+                                   $on{duration},
+                                   $on{issue}       || $tv{today} ]);
+ 
+    DbQuery( "update todo set status=2".
+             ( $_slaves_average > $_master_progress
+               ? ", progress=$_slaves_average"
+               : '' ).
+             " where todoid='".DbQuote($on{master})."'" );
+
+    LogD('', 'insert', 'todo', $on{todoid});
+   }
+ 
+  IG::Redirect( Qs( 'todo',
+                      $on{owner} eq $auth_user
+                      ? { action        => 'protomaster',
+                          btr           => $on{btr},
+                          default_panel => 1,
+                          todoid        => $on{master} }
+                      : { pos           => $on{pos},
+                          order         => $on{order},
+                          btr           => $on{btr},
+                          sortdirection => $on{sortdirection} }
+                    ) );
+ }
+
+############################################################################
+############################################################################
+sub status
+ {
+  _change_status( $on{todoid} )
+  ? IG::BackToReferer()
+  : IG::Warn( "[1448] You cannot change status to this task! [$on{todoid}]");
+ }
+
+############################################################################
+############################################################################
+sub exhort_user
+ {
+  my $tid = DbQuote( $on{tid} );
+  
+  DbQuery("select owner, login from todo ".
+          "where todoid='$tid' limit 1");
+  my ($owner, $login) = FetchRow();
+
+  IG::SendIsms( receiver => $login,
+                body     => sprintf( $lang{exhort_alert},
+                                     IG::UsrInf('name',$owner),
+                                     $tid )
+              ) if $owner eq $auth_user && $login ne $auth_user;
+
+  LogD("exhort user '$login'", 'update', 'todo', $tid);
+
+  IG::BackToReferer();
+ }
+
+############################################################################
+############################################################################
+sub _change_status
+ {
+  ## status legend
+  ## 0 active
+  ## 1 completed
+  ## 2 active (is a master of other sub-tasks)
+
+  my ( $tid, $wanted_status ) = @_;
+
+  my $enddate;
+  my $progress;
+  my $status;
+  my $status_act = '0';
+  my $tid        = DbQuote( $tid );
+
+  ## get original status
+  DbQuery("select todoid, master, status, owner, login from todo ".
+          "where todoid='$tid' or master='$tid' order by master");
+  while ( my @row = FetchRow() )
+   {
+    ## check privilege
+    return 0 if    $row[0] == $tid
+                && $row[3] ne $auth_user
+                && $row[4] ne $auth_user;
+
+    $status     = $row[2] if $row[0] == $tid;
+    $status_act = 2       if $row[1] == $tid;
+   }
+
+  if (     $wanted_status eq '0'
+       || ($status == 1 && !defined($wanted_status))
+     )
+   {
+    ## re-active task
+    $status   = $status_act;
+    $enddate  = $tv{empty_date};
+    $progress = '0';
+   }
+  else
+   {
+    ## close task
+    $status   = 1;
+    $enddate  = $tv{today};
+    $progress = 100;
+   }
+
+  DbQuery("update todo set progress=$progress, status=$status,".
+	  " enddate='$enddate' where todoid='$tid'");
+
+  LogD("change status to '$status'", 'update', 'todo', $tid);
+ }
+
+############################################################################
+############################################################################
+sub priority
+ {
+  $on{priority}++;
+  $on{priority} = 1 if $on{priority} == 6;
+
+  QuoteParams();
+  DbQuery("update todo set priority='$in{priority}' ".
+	  "where todoid='$in{todoid}' and owner='$auth_user'");
+
+  LogD("change priority to '$on{priority}'", 'update', 'todo', $on{todoid});
+
+  if ($on{backto} eq 'protoslave')
+   {
+    $on{todoid}        = $on{master};
+    $on{default_panel} = 1;
+    protomaster();
+   }
+  else
+   {
+    default_action();
+   }
+ }
+
+############################################################################
+############################################################################
+sub del_slave
+ {
+  if ( !$on{todoid} || _del_task( $on{todoid} ) )
+   {
+    $on{todoid}        = $on{master};
+    $on{default_panel} = 1;
+    protomaster();
+   }
+  else
+   {
+    IG::Warn("[1538] You cannot delete this task! [$on{todoid}]");
+   }
+ }
+
+############################################################################
+############################################################################
+sub _del_task
+ {
+  my $tid = DbQuote( shift );
+
+  DbQuery("select owner, login, status from todo where todoid='$tid'");
+  my ( $owner, $login, $status ) = FetchRow();
+
+  ## if status==2 there are other sub-tasks
+  return 0 if $status == 2 || $owner ne $auth_user;
+
+  DbQuery("delete from todo where todoid='$tid' or master='$tid'");
+  LogD('', 'delete', 'todo', $tid);
+  return 1;
+ }
+
+############################################################################
+############################################################################
+sub delall
+ {
+  if ( $on{todoid} )
+   {
+    my $tid = DbQuote( $on{todoid} );
+    DbQuery("select owner, login, status from todo where todoid='$tid'");
+    my ( $owner, $login, $status ) = FetchRow();
+    return 0 if $owner ne $auth_user;
+
+    DbQuery("delete from todo where todoid='$tid' or master='$tid'");
+    LogD('deleted all project', 'delete', 'todo', $tid);
+   }
+
+  default_action();
+ }
+
+#############################################################################
+#############################################################################
+sub findshow
+ {
+  HtmlHead();
+  if ($auth_user ne 'guest')
+   {
+    HLayer( bottom_space => 0,
+            right_layers=>[(
+		    FormHead (	name=>'findnavi',
+				float=>'left',
+				labelstyle=>'border:0px; width: auto',
+				cgiaction=>'findexec',
+				method=>'get',
+				autofocus=>'false',
+				target=>'mainf'),
+
+		    Input (	type=>'findable'),
+
+		    Input (	type=>'select',
+				value=>1,
+				name=>'method',
+				style=>'font-size:10px; width:80px;',
+				data=>{	1 =>	$lang{all},
+					2 =>	$lang{in_progress_todos},
+					3 =>	$lang{completed_todos} } ),
+
+		    Input (	type=>'hidden',
+				name=>'doc').
+
+		    Input (	type=>'logins',
+				allvalue=>'true',
+				style=>'font-size:10px; width:150px;',
+				name=>'owner'),
+
+		    Input (	type=>'select',
+				value=>'todotext',
+				name=>'fieldtofind',
+				style=>'font-size:10px; width:160px;',
+				data=>{	todotext=>	$lang{with_title},
+					todoid=>	$lang{with_protocol},
+					contactname=>	$lang{with_header},
+					description=>	$lang{with_description}} ),
+
+		    Input (	type=>'text',
+				name=>'keytofind',
+				value=>$IG::cookie{lastsearch},
+                                style=>'width:100px; margin-right: -5px;',
+				onblur=>"document.cookie='lastsearch=' + escape(this.value)" ).
+
+		    Input (	type=>'image',
+				name=>'Ricerca Documenti',
+				src=>"$IG::img_url/${IG::tema}search.gif",
+				alt=>'cerca').
+
+		    FormFoot()
+		)]
+	 );
+   }
+  HtmlFoot();
+ }
+
+#############################################################################
+#############################################################################
+sub findexec
+ {
+  my ($counter, $bg_ini, $bg_fin, $query);
+
+  if ($on{ajax_request})
+   {
+    HttpHead( expires => '+30s' );
+
+    TaskMsg( Input( type       => 'button',
+                    float      => 'right',
+                    onclick    => "document.location = '".
+                                  "todo?".
+                                        "action=protomaster&amp;".
+                                        "contactid=$on{contactid}&amp;".
+                                        "btr=1';",
+                    show       => $lang{new_task},
+                    fieldstyle => 'margin:0px',
+                    style      => 'margin:0px;font-size:10px; height:15px' ).
+
+	     Img( src   => "$IG::img_url/todo.gif",
+                  style => 'margin-right:2px',
+                  align => 'absmiddle').
+
+             "<a href=\"todo\">$lang{todo}</a>" 
+            ,7);
+   }
+  else
+   {
+    $IG::set_cookie{lastsearch} = $on{keytofind};
+
+    HtmlHead();
+    TaskHead( title=>'IGToDo', minwidth=>650 );
+
+    HLayer( MkButton( text => $lang{todo_list}, link => 'todo') );
+
+    TaskMsg("IGToDo - $lang{find}: <strong>$on{keytofind}</strong>",4);
+   }
+
+  ## Build Query
+  QuoteParams();
+  if ( length($on{keytofind}) <2 && !$on{ajax_request} )
+   {
+    push @IG::errmsg, $lang{Err_find};
+    $query = '1=0';
+   }
+  elsif ( $on{contactid} )
+   { 
+    $query = "todo.contactid='$on{contactid}'";
+    $query = "($query or masterCnt.contactid='$on{contactid}')" 
+	     if $on{ajax_request};   
+   }
+  elsif ($on{fieldtofind} eq 'todoid')
+   { $query = "todo.todoid='$in{keytofind}'" }
+  elsif ($on{fieldtofind} eq 'description')
+   { $query = "todo.description~*'$in{keytofind}'" }
+  elsif ($on{fieldtofind} eq 'contactname')
+   { $query = "contacts.contactname ~* '$in{keytofind}'" }
+  elsif ($on{fieldtofind} eq 'todotext')
+   { $query = "todo.todotext~*'$in{keytofind}'" }
+
+  if ( $on{method} == 2 )
+   { $query .= " and todo.status=0" }
+  elsif ( $on{method} == 3 )
+   { $query .= " and todo.status=1" }
+
+  if ($on{owner} ne 'all')
+   { 
+    $query .= " and todo.owner='$in{owner}'";
+    $query .= " and todo.sharemode=0" unless $on{owner} eq $auth_user;
+   }
+  else
+   {
+    $query .= " and (todo.sharemode=0 or todo.owner='$auth_user')";
+   }
+
+  TaskListMenu (
+	[$lang{number}],
+	[$lang{user}],
+	[$lang{issue}],
+	[$lang{solution}],
+	[$lang{due_date}],
+	[$lang{description}],
+	[$lang{priority}],
+	[$lang{progress}]
+		);
+
+  DbQuery("SELECT todo.todoid, todo.startdate, todo.enddate,".
+	  " todo.status, todo.todotext, todo.priority, todo.duedate,".
+	  " todo.master, todo.progress,".
+	  " todo.contactid, todo.owner, todo.duedate-current_date, contacts.contactname ".
+	  "FROM todo LEFT JOIN contacts ".
+	  "ON todo.contactid = contacts.contactid ".
+          ( $on{ajax_request} 
+	    ? 'LEFT JOIN contacts masterCnt '.
+	      'ON masterCnt.contactid=contacts.master '
+	    : '' ).
+	  "WHERE $query ".
+	  "ORDER BY todo.todoid desc");
+
+  while (my @row = FetchRow())
+   {
+    ++$counter;
+    if ( $row[3]==1 && !$on{print} )
+     { $bg_ini="<font color=gray><strike>"; $bg_fin="</strike></font>" }
+    elsif (($row[3]==2 || $row[7]) && !$on{print})
+     { $bg_ini="<font color=green>"; $bg_fin="</font>" }
+    elsif ($row[3]==0 && !$on{print})
+     { $bg_ini="<font color=black>"; $bg_fin="</font>" }
+    else
+     { $bg_ini = $bg_fin = '' }
+
+    my $edit_link = $row[10] eq $auth_user
+	            ? ( $row[7]
+	                ? "todo?action=protoslave&amp;todoid=$row[0]"
+	                : "todo?action=protomaster&amp;todoid=$row[0]" )
+	            : '';
+
+    if (!(CkDate($row[2]))) { $row[2] = '&nbsp;' }
+
+    if (!(CkDate($row[6])))
+     { $row[6] = '&nbsp;' }
+    else
+     {
+      if ($row[11]<1)
+       { $row[6] = Blush($row[6]) }
+     }
+
+    $row[4] = MkLink($row[4]);
+    $row[4] = "$row[12] $row[4]" if $row[12];
+    $row[8] = $row[8] ? "$row[8]%" : $lang{to_start};
+
+    TaskListItem (
+	[$edit_link ? $row[0] : "$bg_ini$row[0]$bg_fin", $edit_link],
+	[$bg_ini . IG::UsrInf('name',$row[10]) . $bg_fin],
+	["$bg_ini$row[1]$bg_fin"],
+	["$bg_ini$row[2]$bg_fin"],
+	["$bg_ini$row[6]$bg_fin"],
+	["$bg_ini$row[4]$bg_fin"],
+	[$row[5], '', 'align=center'],
+	[$row[8]],
+		);
+   }
+
+  if ($on{ajax_request})
+   {
+    TaskListFoot(7);
+   }
+  else
+   {
+    push @IG::errmsg, $lang{no_items} if !$counter && length($on{keytofind}) >1;
+    TaskListFoot();
+    TaskFoot();
+    HtmlFoot();
+   }
+ }
+
+###########################################################
+###########################################################
+## $lang{backto_project}
+## 

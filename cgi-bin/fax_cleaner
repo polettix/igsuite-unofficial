@@ -1,0 +1,54 @@
+#! /usr/bin/perl
+# Procedure: fax_cleaner
+# Last update: 01/07/2010
+#############################################################################
+# IGSuite 4.0.1 - Provides an Office Suite by  simple web interface         #
+# Copyright (C) 2002 Dante Ortolani  [LucaS]                                #
+#                                                                           #
+# This program is free software; you can redistribute it and/or             #
+# modify it under the terms of the GNU General Public License               #
+# as published by the Free Software Foundation; either version 2            #
+# of the License, or (at your option) any later version.                    #
+#                                                                           #
+# This program is distributed in the hope that it will be useful,           #
+# but WITHOUT ANY WARRANTY; without even the implied warranty of            #
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the             #
+# GNU General Public License for more details.                              #
+#                                                                           #
+# You should have received a copy of the GNU General Public License         #
+# along with this program; if not, write to the Free Software Foundation,   #
+# Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.           #
+#############################################################################
+
+use strict;
+use IG;
+IG::MkEnv(__PACKAGE__);
+
+IG::DTable( default_action => sub { CheckPrivilege('sys_user_admin') } );
+
+
+##############################################################################
+##############################################################################
+sub default_action
+ {
+  ## move to trash advertising fax-recived older than specified years
+  my $older_years = 4;
+  my $cnt         = 0;
+  my $category    = '027'; ## ads
+  my $until_date  = IG::GetDateByFormat( 1, 1, $IG::tv{year} - $older_years );
+
+  DbQuery("SELECT id ".
+          "FROM fax_received ".
+          "WHERE category='$category' and issue<'$until_date'");
+
+  while ( my $id = FetchRow() )
+   {
+    $cnt++;
+    IG::TrashDoc( $id );
+   }
+
+  PrOut "Deleted $cnt advertising messages from fax received.\n";
+ }
+
+#############################################################################
+#############################################################################

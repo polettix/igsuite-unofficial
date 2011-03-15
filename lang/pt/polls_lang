@@ -1,0 +1,12 @@
+## IGSuite 4.0.1
+## Language: polls_lang
+## Last update: 01/07/2010
+## Tradução: Marco Túlio de Oliveira Alves
+
+%lang = (%lang,
+   (
+voters		 => 'Eleitores',	
+poll_group_limit => 'Limit the poll to this users group',
+   ));
+
+1;

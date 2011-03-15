@@ -1,0 +1,26 @@
+## IGSuite 4.0.1
+## Language: offers_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+offers_category_NC      =>'Nuovo Contratto',
+offers_category_RC      =>'Rinnovo Contratto',
+offers_category_AC      =>'Addendum a Contratto',
+offers_category_SN      =>'Contratto Spot nuovi clienti',
+offers_category_SV      =>'Contratto Spot vecchi clienti',
+offers_category_AP      =>'Aggiornamento Prezzi',
+offer_not_accepted      =>'Offerta non accettata',
+new_revision		=>'Nuove rev',
+accepted		=>'Accettate',
+not_accepted		=>'Non Accettate',
+offers_protocol		=>'Protocollo Offerte',
+save_offer		=>'Salva nel protocollo Offerte',
+offers_stats		=>'Statistiche',
+stat_0			=>'Totale tipologie offerte e esito',
+stat_1			=>'Offerte effettuate negli ultimi 12 mesi',
+stat_2			=>'Ultimi 12 mesi -',
+find_offers		=>'Ricerca Offerte'
+   ));
+
+1;

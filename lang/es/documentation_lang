@@ -1,0 +1,14 @@
+## IGSuite 4.0.1
+## Language: quality_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+management_system       =>'Management System',
+with_management_system  =>'With Management System',
+drafts			=>'Drafts',
+publish_mng		=>'Administración de las publicaciones',
+new_document		=>'Nuevo documento',
+  ));
+
+1;

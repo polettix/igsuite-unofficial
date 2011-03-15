@@ -1,0 +1,27 @@
+## IGSuite 4.0.1
+## Language: offers_lang
+## Last update: 01/07/2010
+## Tradução: Marco Túlio de Oliveira Alves
+
+%lang = (%lang,
+   (
+offers_category_NC      =>'Novo contrato',
+offers_category_RC      =>'Renovação de contrato',
+offers_category_AC      =>'Contrato anexado',
+offers_category_SN      =>'Especial fora do contrato para novos clientes',
+offers_category_SV      =>'Especial fora do contrato para antigos clientes',
+offers_category_AP      =>'Atualizar preços',
+offer_not_accepted      =>'Offer not accepted',
+new_revision		=>'Nova revisão',
+accepted		=>'Aceitado',
+not_accepted		=>'Não aceitado',
+offers_protocol		=>'Protocolo ofertas',
+save_offer		=>'Salvar como novo Protocolo Ofertas',
+offers_stats		=>'Estatísticas',
+stat_0			=>'Total tipo ofertas e resultados',
+stat_1			=>'Andamento de ofertas criadas nos últimos 12 meses',
+stat_2			=>'Andamento dos últimos 12 meses',
+find_offers		=>'Procurar ofertas',
+  ));
+
+1;

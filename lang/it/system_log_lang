@@ -1,0 +1,10 @@
+## IGSuite 4.0.1
+## Language: cerca_log_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+operation		=>'Operazione',
+   ));
+
+1;

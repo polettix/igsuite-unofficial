@@ -1,0 +1,16 @@
+## IGSuite 4.0.1
+## Language: binders_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+binders_protocol        => 'Binders Protocol',
+Err_protocol_number     => 'Attention: the protocol number you have inserted is not valid',
+edit_binder             => 'Edit binder',
+add_binders_spool       => 'Add all documents in the binder spool',
+unlink_from_binder      => 'Unlink the document from this binder',
+binder_name             => 'Binder name',
+binded_docs             => 'Binded documents',
+   ));
+
+1;

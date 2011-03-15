@@ -1,0 +1,10 @@
+## IGSuite 4.0.1
+## Language: articles_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+new_article		=>'New Article',
+   ));
+
+1;

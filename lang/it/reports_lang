@@ -1,0 +1,18 @@
+## IGSuite 4.0.1
+## Language: reports_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+column                    => 'Colonna',
+remove_contacts_from_group=> 'Rimuovi i contatti del report dal gruppo',
+modify_group_by_report    => 'Modifica i contatti di un gruppo esistente',
+ascending                 => 'Crescente',
+descending                => 'Decrescente',
+mkgroup_by_report         => 'Crea un gruppo con questi contatti',
+add_contacts_to_group_ok  => 'Contatti aggiunti con successo al gruppo',
+add_contacts_to_group     => 'Aggiungi i contatti del report al gruppo',
+paginate_results          => 'Divide i risultati su più pagine',
+   ));
+
+1;

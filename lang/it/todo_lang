@@ -1,0 +1,35 @@
+## IGSuite 4.0.1
+## Language: todo_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+gtd_method              => 'Fai uscire ogni cosa dalla tua mente. Prendi le decisioni riguardo le azioni necessarie quando il problema si presenta - non quando esplode. Organizza i promemoria dei tuoi progetti e le loro prossime azioni in categorie appropriate. Tieni il tuo sistema aggiornato, completo e rivisto sufficientemente per dare fiducia alle scelte su quello che stai facendo (e quello che non stai facendo) in ogni momento.',
+tasks_somedays_maybe    => 'Le azioni per un giorno forse',
+someday_maybe           => 'Un giorno forse',
+action                  => 'Azione',
+exhort_alert            => 'L\'utente %1$s ti esorta a completare il lavoro %2$s',
+set_category            => 'Assegna la categoria...',
+new_todo_alert          => 'Ti ho assegnato il lavoro n. %1$s',
+gantt_chart             => 'Grafico di Gantt',
+master_task             => 'Lavoro principale',
+set_priority            => 'Assegna priorita\'...',
+hide_until              => 'Nascondi fino a...',
+tasks_expired           => 'Le azioni scadute',
+tasks_assigned_to_me    => 'Le azioni assegnate a me',
+tasks_mine              => 'Le azioni da svolgere',
+tasks_to_start          => 'Le azioni da iniziare',
+tasks_completed         => 'Le azioni teminate',
+tasks_in_progress       => 'Le azioni in corso',
+completed_todos         => 'Completati',
+in_progress_todos       => 'In corso',
+new_task		=> 'Aggiungi lavoro',
+duration		=> 'Durata',
+backto_project		=> 'Torna al progetto',
+to_start		=> 'Da iniziare',
+delete_participant	=> 'Cancella partecipante',
+delete_project		=> 'Cancella intero progetto',
+todo_list		=> 'Lista ToDo',
+   ));
+
+1;

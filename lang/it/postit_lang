@@ -1,0 +1,19 @@
+## IGSuite 4.0.1
+## Language: postit_lang
+## Last update: 01/07/2010
+
+%lang = (%lang,
+   (
+visib_0                 => 'Non visibile sul sommario',
+visib_1                 => 'Visibile sul mio sommario',
+visib_2                 => 'Visibile sul sommario di tutti',
+visibility              => 'Visibilita\'',
+web_site		=> 'Sito Internet',
+personal_links		=> 'Collegamenti Personali',
+link_name		=> 'Collegamento',
+attachments		=> 'Allegati',
+save_link		=> 'Salva come nuovo collegamento',
+Err_nolink		=> 'Errore: manca il nome del collegamento',
+   ));
+
+1;

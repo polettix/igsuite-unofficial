@@ -1,0 +1,231 @@
+#! /usr/bin/perl
+# Procedure: igdochandler
+# Last update: 01/07/2010
+#############################################################################
+# IGSuite 4.0.1 - Provides an Office Suite by  simple web interface         #
+# Copyright (C) 2002 Dante Ortolani  [LucaS]                                #
+#                                                                           #
+# This program is free software; you can redistribute it and/or             #
+# modify it under the terms of the GNU General Public License               #
+# as published by the Free Software Foundation; either version 2            #
+# of the License, or (at your option) any later version.                    #
+#                                                                           #
+# This program is distributed in the hope that it will be useful,           #
+# but WITHOUT ANY WARRANTY; without even the implied warranty of            #
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the             #
+# GNU General Public License for more details.                              #
+#                                                                           #
+# You should have received a copy of the GNU General Public License         #
+# along with this program; if not, write to the Free Software Foundation,   #
+# Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.           #
+#############################################################################
+
+use strict;
+use IG;
+IG::MkEnv(__PACKAGE__);
+
+## Check if tiffcp is a valid application to edit tiff files
+die( "Error: If you want to use this feature ask to your ".
+     "system administrator to set \$IG::ext_app{tiffcp} ".
+     "parameter in IGSuite configuration file.\n"
+   ) if ! -e $IG::ext_app{tiffcp};
+
+IG::DTable( show_form		=> 1,
+            edit_doc		=> 1,
+            default_action	=> 1 );
+
+##############################################################################
+##############################################################################
+sub default_action { show_form(); }
+sub show_form
+ {
+  my $doc_status = IG::CheckResourcePrivileges( id => $on{file7}, mode => 'w' );
+  return if ! $doc_status;
+
+  Header();
+  FormHead( cgiaction => 'edit_doc' );
+  
+  Input( type =>'hidden', name =>'file7');
+
+  PrOut "<table class=\"tasklist\"><tr>
+	 <td class=\"menu\">$lang{source_doc}</td>
+	 <td class=\"menu\">$lang{pages}</td></tr>\n";
+
+  for ( 1 .. 6 )
+   {
+    PrOut "<tr><td>";
+    Input (	type    => 'text',
+		name    => "file$_",
+		style   => 'width:160px',
+		maxlen  => 10 );
+
+    PrOut "</td><td>";
+    Input (	type    => 'text',
+		name    => "pag$_",
+		style   => 'width:200px' );
+
+    PrOut "</td></tr>\n";
+   }
+
+  PrOut "<tr><td colspan=2 class=\"menu\">$lang{target_doc}: $on{file7}</td></tr>\n".
+        "</table>";
+
+  Input (	type    => 'submit',
+		name    => 'preview',
+		float   => 'left',
+		style   => 'margin-top:15px; width:70px; font-size:10px;',
+		value   => $lang{preview} );
+
+  Input (	type    => 'submit',
+		onclick => IG::JsConfirm( $lang{are_you_sure} ),
+		name    => 'edit',
+		float   => 'right',
+		style   => 'margin-top:15px; width:125px; font-size:10px;',
+		value   => $lang{edit_doc} );
+
+
+
+  FormFoot();
+  Footer();
+  1;
+ }
+
+#############################################################################
+#############################################################################
+sub edit_doc
+ {
+  my $doc_status = IG::CheckResourcePrivileges( id => $on{file7}, mode => 'w' );
+  return if ! $doc_status;
+
+  my $source;
+  my $target_file;
+  my $temp_target_file = "$IG::temp_dir${S}igdochandler-$auth_user";
+
+  push @IG::errmsg, $lang{Err_target_doc} if !$on{file7};
+
+  for my $t ( 1 .. 7 ) 
+   {
+    ## locates Tiff files
+    my $pid = $on{"file$t"};
+
+    my ($file_name, $file_path) = IG::ProtocolToFile( $pid );
+
+    if ( $t != 7 && $file_name && $file_name =~ /\.pdf$/i )
+     {
+      die("You have to install and configure GhostScript (gs) ".
+          "if you want use PDF files!\n") if $IG::ext_app{gs} && ! -x $IG::ext_app{gs};
+
+      IG::SysExec( command   => $IG::ext_app{gs},
+                   arguments => [( '-q',
+                                   '-dNOPAUSE',
+                                   '-dBATCH',
+                                   '-sDEVICE=tiffg32d',
+                                   '-sPAPERSIZE=a4',
+                                   "-sOutputFile=$IG::temp_dir${S}$file_name.tif",
+                                   $file_path . $IG::S . $file_name )]
+                  ) or die("Can't execute '$IG::ext_app{gs}'.\n");
+
+      $file_path = $IG::temp_dir;
+      $file_name = $file_name . '.tif';
+     }
+    elsif ( $t != 7 && $file_name && $file_name !~ /\.tiff*$/i )
+     {
+      push(@IG::errmsg, "Source $pid Is not a tiff or a pdf file");
+     }
+
+    push(@IG::errmsg,
+         "Your resource file path '$file_path' can't contains white spaces!\n")
+      if $file_path =~ / /;
+
+    push(@IG::errmsg,
+         "$lang{Err_nodoc} $pid") && next if !$file_name && $pid && $t != 5;
+    push(@IG::errmsg,
+         $lang{Err_source_doc}) if $t==7 && !$source;
+
+    ## check pages to extract from tiff files
+    if ( $on{"pag$t"} )
+     {
+      my $pagg = $on{"pag$t"};
+
+      while ( $pagg =~ /(\d*)\-(\d*)/ )
+       {
+        my $str;
+        for ( $1 .. $2 ) { $str.="$_,"; }
+        chop($str);
+        $pagg =~ s/(\d*)\-(\d*)/$str/;
+       }
+
+      $pagg =~ s/(\d*),/($1-1).","/eg; #sottrae un numero a tutta la serie
+      $pagg =~ s/(\d*)$/(($1-1)+0)/e;  #sottrae un numero all'ultimo elemento
+
+      if ($pagg =~ /^[0-9\,]+$/)
+       {
+        ## prepare tiffcp options
+        $source .= "$file_path${S}$file_name,$pagg ";
+       }
+      else
+       { push @IG::errmsg, $lang{Err_pages_description}; }
+     }
+    else
+     {
+      ## prepare tiffcp options
+      if ($t < 7) { $source .= $file_path . ${S} . $file_name . ' '; }
+     }
+
+    $target_file = $file_path . ${S} . $file_name;
+   }
+  $target_file =~ s/\.pdf$/\.tif/i;
+
+  ## errors?
+  show_form() && return if @IG::errmsg;
+
+  ## merge tiff files
+  IG::SysExec( command   => $IG::ext_app{tiffcp},
+               arguments => [( (split / /, $source),
+                               $temp_target_file )]
+             ) or die("Can't execute '$IG::ext_app{tiffcp}'.\n");
+
+  if ( $on{preview} )
+   {
+    ## show preview
+    my ( $type, $size ) = IG::FileStat( $temp_target_file );
+
+    IG::DocHead( type           => $type,
+                 expires        => 'now',
+                 content_length => $size,
+                 attachment     => "$on{file7}.tif" );
+
+    open( FH, '<', $temp_target_file )
+      or die("Can't open '$temp_target_file'.\n");
+    binmode(FH);
+    PrOut($_) while <FH>;
+    close (FH);
+   }
+  else
+   {
+    IG::TrashDoc( $on{file7} );
+
+    IG::FileCopy( $temp_target_file, $target_file, 1 )
+      or die("Can't move '$temp_target_file' file ".
+             " to '$target_file' Check permission - debug info: '$source'.\n");
+   
+    Header();
+    TaskMsg( $lang{ok_doc}.MkLink($on{file7}), 1 );
+    Footer();
+    LogD("$target_file with file/s $source", 'igdochandler');
+   }
+ }
+
+#############################################################################
+#############################################################################
+sub Header
+ {
+  HtmlHead();
+  TaskHead( title => $lang{edit_documents} );
+ }
+
+sub Footer
+ {
+  TaskFoot();
+  HtmlFoot();
+ }

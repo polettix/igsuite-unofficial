@@ -1,0 +1,20 @@
+## IGSuite 4.0.1
+## Language: postit_lang
+## Last update: 01/07/2010
+## Tradução: Marco Túlio de Oliveira Alves
+
+%lang = (%lang,
+   (
+visib_0                 => 'Not visible on summary page',
+visib_1                 => 'Visible on my summary page',
+visib_2                 => 'Visible on all summary page',
+visibility              => 'Visibility',
+web_site                =>'Web Site',
+personal_links		=>'Links pessoais',
+link_name		=>'Nome link',
+attachments		=>'Anexos',
+save_link		=>'Salvar como novo link',
+Err_nolink		=>'Erro: insira um nome de link válido',
+  ));
+
+1;
